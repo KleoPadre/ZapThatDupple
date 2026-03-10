@@ -1,0 +1,183 @@
+import { useState, useEffect } from 'react'
+import { Download, CheckCircle, HardDrive, Cpu, FileText, Music, WifiOff } from 'lucide-react'
+import { getModels, downloadModel } from '../utils/api'
+import { useStore } from '../store'
+
+interface ModelMeta {
+  id: string
+  name: string
+  description: string
+  hf_id: string | null
+  size_mb: number
+  type: string
+  downloaded: boolean
+}
+
+interface ModelsData {
+  image: ModelMeta[]
+  text: ModelMeta[]
+  audio: ModelMeta[]
+}
+
+export function ModelsPage({ t }: { t: any }) {
+  const [models, setModels] = useState<ModelsData | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState<Set<string>>(new Set())
+  const { settings, setSettings } = useStore()
+
+  const loadModels = async () => {
+    try {
+      const data = await getModels()
+      setModels(data)
+      setError(null)
+    } catch (e: any) {
+      setError('Нет соединения с backend. Проверьте ~/ZapThatDupple/app.log')
+    }
+  }
+
+  useEffect(() => {
+    loadModels()
+    const interval = setInterval(loadModels, 5000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const handleDownload = async (modelId: string) => {
+    setDownloading(prev => new Set(prev).add(modelId))
+    try {
+      await downloadModel(modelId)
+      // Poll until downloaded
+      const poll = setInterval(async () => {
+        const data = await getModels()
+        setModels(data)
+        const allModels = [...data.image, ...data.text, ...data.audio]
+        const model = allModels.find(m => m.id === modelId)
+        if (model?.downloaded) {
+          clearInterval(poll)
+          setDownloading(prev => { const n = new Set(prev); n.delete(modelId); return n })
+        }
+      }, 3000)
+    } catch (e) {
+      setDownloading(prev => { const n = new Set(prev); n.delete(modelId); return n })
+    }
+  }
+
+  if (error) {
+    return (
+      <div className="p-8 flex flex-col items-center justify-center h-full gap-4">
+        <WifiOff className="text-red-400/60" size={40} />
+        <p className="text-red-400/80 text-sm text-center max-w-sm">{error}</p>
+        <button onClick={loadModels} className="px-4 py-2 rounded-xl bg-white/5 text-white/50 hover:bg-white/10 text-sm transition-all">
+          Повторить
+        </button>
+      </div>
+    )
+  }
+
+  if (!models) {
+    return (
+      <div className="p-8 flex items-center justify-center h-full">
+        <div className="flex items-center gap-3 text-white/30">
+          <div className="w-4 h-4 border-2 border-white/20 border-t-violet-400 rounded-full animate-spin" />
+          Подключение к backend...
+        </div>
+      </div>
+    )
+  }
+
+  const ModelCard = ({ model, selected, onSelect, onDownload, isDownloading }: {
+    model: ModelMeta, selected: boolean,
+    onSelect: () => void, onDownload: () => void, isDownloading: boolean
+  }) => {
+    const sizeMb = model.size_mb
+    const sizeStr = sizeMb >= 1000 ? `${(sizeMb/1024).toFixed(1)} GB` : sizeMb > 0 ? `${sizeMb} MB` : '—'
+
+    return (
+      <div className={`p-4 rounded-xl border transition-all ${selected ? 'border-violet-500/50 bg-violet-500/10' : 'border-white/5 bg-white/5 hover:border-white/10'}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="text-white/80 text-sm font-medium">{model.name}</h3>
+              {selected && <span className="text-xs text-violet-400 bg-violet-500/15 px-2 py-0.5 rounded-full">Выбрана</span>}
+            </div>
+            <p className="text-white/30 text-xs leading-relaxed mb-2">{model.description}</p>
+            {sizeMb > 0 && (
+              <div className="flex items-center gap-1 text-white/20 text-xs">
+                <HardDrive size={10} />{sizeStr}
+              </div>
+            )}
+          </div>
+          <div className="flex flex-col gap-2 shrink-0">
+            {model.hf_id === null ? (
+              <span className="text-green-400/70 text-xs flex items-center gap-1">
+                <CheckCircle size={12} />Встроена
+              </span>
+            ) : model.downloaded ? (
+              <span className="text-green-400/70 text-xs flex items-center gap-1">
+                <CheckCircle size={12} />Загружена
+              </span>
+            ) : (
+              <button onClick={onDownload} disabled={isDownloading}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-all text-xs disabled:opacity-50">
+                {isDownloading ? <span className="animate-spin">↻</span> : <Download size={12} />}
+                {isDownloading ? 'Загрузка...' : 'Скачать'}
+              </button>
+            )}
+            {model.downloaded && !selected && model.hf_id !== null && (
+              <button onClick={onSelect}
+                className="px-3 py-1.5 rounded-lg bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 transition-all text-xs">
+                Использовать
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const Section = ({ icon: Icon, title, children }: any) => (
+    <div className="mb-8">
+      <div className="flex items-center gap-2 mb-4">
+        <Icon size={16} className="text-violet-400" />
+        <h2 className="text-sm font-medium text-white/60">{title}</h2>
+      </div>
+      <div className="space-y-3">{children}</div>
+    </div>
+  )
+
+  return (
+    <div className="p-8 max-w-2xl mx-auto">
+      <h1 className="text-2xl font-semibold text-white mb-2">{t.models.title}</h1>
+      <p className="text-white/30 text-sm mb-8">
+        Модели хранятся в: <code className="text-violet-400/70 text-xs">~/ZapThatDupple/models/</code>
+      </p>
+
+      <Section icon={Cpu} title="Изображения и Видео (CLIP)">
+        {models.image.map(m => (
+          <ModelCard key={m.id} model={m}
+            selected={settings.image_model === m.id}
+            onSelect={() => setSettings({ image_model: m.id })}
+            onDownload={() => handleDownload(m.id)}
+            isDownloading={downloading.has(m.id)} />
+        ))}
+      </Section>
+
+      <Section icon={FileText} title="Документы">
+        {models.text.map(m => (
+          <ModelCard key={m.id} model={m}
+            selected={settings.text_model === m.id}
+            onSelect={() => setSettings({ text_model: m.id })}
+            onDownload={() => handleDownload(m.id)}
+            isDownloading={downloading.has(m.id)} />
+        ))}
+      </Section>
+
+      <Section icon={Music} title="Аудио">
+        {models.audio.map(m => (
+          <ModelCard key={m.id} model={m}
+            selected={false} onSelect={() => {}} onDownload={() => {}}
+            isDownloading={false} />
+        ))}
+      </Section>
+    </div>
+  )
+}

@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Python
+backend/venv/
+backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+
+# Build outputs
+frontend/dist/
+frontend/dist-electron/
+frontend/release/
+backend/dist/
+backend/build/
+*.spec
+
+# macOS
+.DS_Store
+**/.DS_Store
+*.icns
+
+# App data (user-specific)
+~/ZapThatDupple/
+
+# Logs
+*.log
+app.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+
+# Thumbnails
+Thumbs.db
+ehthumbs.db

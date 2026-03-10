@@ -1,0 +1,539 @@
+import asyncio
+
+# Register HEIC support at startup
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
+
+import json
+import os
+import pickle
+import time
+import uuid
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, delete
+
+from db.database import init_db, get_db, AsyncSessionLocal
+from db.models import ProcessedFile, DuplicateGroup, ScanSession
+from ai.model_manager import model_manager, AVAILABLE_MODELS, MODELS_DIR
+from scanner import scan_folders, get_file_type
+from comparator import find_duplicates
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield
+    model_manager.unload_all()
+
+
+app = FastAPI(title="ZapThatDupple API", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Active WebSocket connections
+active_ws: List[WebSocket] = []
+
+# Current scan task
+current_task: Optional[asyncio.Task] = None
+scan_state: Dict[str, Any] = {"status": "idle"}
+
+
+async def broadcast(message: dict):
+    disconnected = []
+    for ws in active_ws:
+        try:
+            await ws.send_json(message)
+        except Exception:
+            disconnected.append(ws)
+    for ws in disconnected:
+        active_ws.remove(ws)
+
+
+# ─── Models ────────────────────────────────────────────────────────────────────
+
+
+@app.get("/api/models")
+async def get_models():
+    result = {}
+    for category, models in AVAILABLE_MODELS.items():
+        result[category] = []
+        for model_id, meta in models.items():
+            result[category].append({
+                **meta,
+                "downloaded": model_manager.is_model_downloaded(model_id) or meta.get("hf_id") is None,
+            })
+    return result
+
+
+class DownloadModelRequest(BaseModel):
+    model_config = {"protected_namespaces": ()}
+    model_id: str
+
+
+@app.post("/api/models/download")
+async def download_model(req: DownloadModelRequest):
+    async def progress_cb(data):
+        await broadcast({"type": "model_download_progress", **data})
+
+    asyncio.create_task(model_manager.download_model(req.model_id, progress_cb))
+    return {"status": "downloading", "model_id": req.model_id}
+
+
+# ─── Settings ──────────────────────────────────────────────────────────────────
+
+APP_DIR = Path.home() / "Zap that Dupple"
+SETTINGS_FILE = APP_DIR / "settings.json"
+
+DEFAULT_SETTINGS = {
+    "image_model": "clip-ViT-B-32",
+    "text_model": "all-MiniLM-L6-v2",
+    "image_threshold": 0.92,
+    "text_threshold": 0.90,
+    "audio_threshold": 0.97,
+    "video_threshold": 0.90,
+    "video_frames": 10,
+    "scan_folders": [],
+    "language": "ru",
+}
+
+
+@app.get("/api/settings")
+async def get_settings():
+    if SETTINGS_FILE.exists():
+        with open(SETTINGS_FILE) as f:
+            saved = json.load(f)
+        return {**DEFAULT_SETTINGS, **saved}
+    return DEFAULT_SETTINGS
+
+
+@app.post("/api/settings")
+async def save_settings(settings: dict):
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f, indent=2)
+    return {"status": "saved"}
+
+
+# ─── Scan ──────────────────────────────────────────────────────────────────────
+
+class ScanRequest(BaseModel):
+    folders: List[str]
+    image_model: str = "clip-ViT-B-32"
+    text_model: str = "all-MiniLM-L6-v2"
+    image_threshold: float = 0.92
+    text_threshold: float = 0.90
+    audio_threshold: float = 0.97
+    video_threshold: float = 0.90
+    video_frames: int = 10
+    full_rescan: bool = False
+
+
+@app.post("/api/scan/start")
+async def start_scan(req: ScanRequest):
+    global current_task, scan_state
+
+    if scan_state.get("status") in ("scanning", "processing", "comparing"):
+        raise HTTPException(400, "Scan already in progress")
+
+    if req.full_rescan:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(ProcessedFile))
+            await db.execute(delete(DuplicateGroup))
+            await db.commit()
+
+    current_task = asyncio.create_task(run_scan(req))
+    return {"status": "started"}
+
+
+@app.post("/api/scan/stop")
+async def stop_scan():
+    global current_task, scan_state
+    if current_task:
+        current_task.cancel()
+    scan_state = {"status": "idle"}
+    await broadcast({"type": "scan_stopped"})
+    return {"status": "stopped"}
+
+
+@app.get("/api/scan/status")
+async def get_scan_status():
+    return scan_state
+
+
+async def run_scan(req: ScanRequest):
+    global scan_state
+
+    try:
+        # STEP 1: Scan files
+        scan_state = {"status": "scanning", "step": "scanning", "progress": 0, "message": "Scanning folders..."}
+        await broadcast({"type": "progress", **scan_state})
+
+        files = await asyncio.get_event_loop().run_in_executor(
+            None, scan_folders, req.folders
+        )
+        total = len(files)
+        scan_state["total_files"] = total
+        await broadcast({"type": "progress", **scan_state, "total_files": total})
+
+        # STEP 2: Load models
+        scan_state["step"] = "loading_models"
+        scan_state["message"] = "Loading AI models..."
+        await broadcast({"type": "progress", **scan_state})
+
+        await asyncio.get_event_loop().run_in_executor(None, model_manager.load_clip, req.image_model)
+        await asyncio.get_event_loop().run_in_executor(None, model_manager.load_text_model, req.text_model)
+
+        # STEP 3: Process files
+        scan_state["step"] = "processing"
+        scan_state["message"] = "Processing files..."
+        processed = 0
+        start_time = time.time()
+
+        processed_data = []
+
+        for i, file_info in enumerate(files):
+            await asyncio.sleep(0)  # yield to event loop
+
+            path = file_info["path"]
+            ftype = file_info["file_type"]
+
+            # Check if already processed (not full rescan)
+            if not req.full_rescan:
+                model_used_check = req.image_model if ftype in ("image", "video") else req.text_model
+                async with AsyncSessionLocal() as db:
+                    result = await db.execute(
+                        select(ProcessedFile).where(
+                            ProcessedFile.path == path,
+                            ProcessedFile.mtime == file_info["mtime"],
+                            ProcessedFile.embedding_model == model_used_check,
+                        )
+                    )
+                    existing = result.scalar_one_or_none()
+                    if existing and existing.embedding:
+                        emb = pickle.loads(existing.embedding)
+                        processed_data.append({
+                            **file_info,
+                            "md5_hash": existing.md5_hash,
+                            "phash": existing.phash,
+                            "embedding": emb,
+                        })
+                        processed += 1
+                        continue
+
+            # Process new file
+            embedding = None
+            phash = None
+            md5 = None
+            error = None
+
+            try:
+                from processors.image_processor import get_image_phash, get_md5
+
+                if ftype == "image":
+                    md5 = await asyncio.get_event_loop().run_in_executor(None, get_md5, path)
+                    phash = await asyncio.get_event_loop().run_in_executor(None, get_image_phash, path)
+                    embedding = await asyncio.get_event_loop().run_in_executor(
+                        None, model_manager.get_image_embedding, path
+                    )
+
+                elif ftype == "video":
+                    from processors.video_processor import get_video_embedding
+                    md5 = await asyncio.get_event_loop().run_in_executor(None, get_md5, path)
+                    embedding = await asyncio.get_event_loop().run_in_executor(
+                        None, get_video_embedding, path, model_manager, req.video_frames
+                    )
+
+                elif ftype == "audio":
+                    from processors.audio_processor import get_audio_embedding
+                    md5 = await asyncio.get_event_loop().run_in_executor(None, get_md5, path)
+                    embedding = await asyncio.get_event_loop().run_in_executor(
+                        None, get_audio_embedding, path
+                    )
+
+                elif ftype == "document":
+                    from processors.document_processor import extract_text
+                    md5 = await asyncio.get_event_loop().run_in_executor(None, get_md5, path)
+                    text = await asyncio.get_event_loop().run_in_executor(None, extract_text, path)
+                    if text and len(text.strip()) > 20:
+                        embedding = await asyncio.get_event_loop().run_in_executor(
+                            None, model_manager.get_text_embedding, text
+                        )
+
+            except Exception as e:
+                error = str(e)
+
+            # Save to DB (upsert — update if path already exists)
+            emb_blob = pickle.dumps(embedding) if embedding is not None else None
+            model_used = req.image_model if ftype in ("image", "video") else req.text_model
+
+            async with AsyncSessionLocal() as db:
+                from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+                stmt = sqlite_insert(ProcessedFile).values(
+                    path=path,
+                    file_type=ftype,
+                    size=file_info["size"],
+                    mtime=file_info["mtime"],
+                    md5_hash=md5,
+                    phash=phash,
+                    embedding_model=model_used,
+                    embedding=emb_blob,
+                    error=error,
+                ).on_conflict_do_update(
+                    index_elements=["path"],
+                    set_=dict(
+                        file_type=ftype,
+                        size=file_info["size"],
+                        mtime=file_info["mtime"],
+                        md5_hash=md5,
+                        phash=phash,
+                        embedding_model=model_used,
+                        embedding=emb_blob,
+                        error=error,
+                    )
+                )
+                await db.execute(stmt)
+                await db.commit()
+
+            processed_data.append({
+                **file_info,
+                "md5_hash": md5,
+                "phash": phash,
+                "embedding": embedding,
+            })
+
+            processed += 1
+            elapsed = time.time() - start_time
+            rate = processed / elapsed if elapsed > 0 else 1
+            remaining = int((total - processed) / rate) if rate > 0 else 0
+
+            scan_state.update({
+                "processed": processed,
+                "total_files": total,
+                "progress": int(processed / total * 100) if total > 0 else 0,
+                "current_file": os.path.basename(path),
+                "elapsed": int(elapsed),
+                "remaining": remaining,
+            })
+
+            if processed % 5 == 0 or processed == total:
+                await broadcast({"type": "progress", **scan_state})
+
+        # STEP 4: Compare
+        scan_state["step"] = "comparing"
+        scan_state["message"] = "Comparing files..."
+        scan_state["progress"] = 0
+        await broadcast({"type": "progress", **scan_state})
+
+        groups = await asyncio.get_event_loop().run_in_executor(
+            None,
+            find_duplicates,
+            processed_data,
+            req.image_threshold,
+            req.text_threshold,
+            req.audio_threshold,
+            req.video_threshold,
+        )
+
+        # Save groups to DB
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(DuplicateGroup))
+            for group in groups:
+                for file_entry in group["files"]:
+                    db.add(DuplicateGroup(
+                        group_id=group["group_id"],
+                        file_path=file_entry["path"],
+                        similarity=file_entry["similarity"],
+                        match_type=group["match_type"],
+                    ))
+            await db.commit()
+
+        scan_state = {
+            "status": "done",
+            "step": "done",
+            "total_files": total,
+            "processed": total,
+            "groups_found": len(groups),
+            "progress": 100,
+        }
+        await broadcast({"type": "scan_done", **scan_state})
+
+    except asyncio.CancelledError:
+        scan_state = {"status": "idle"}
+    except Exception as e:
+        scan_state = {"status": "error", "error": str(e)}
+        await broadcast({"type": "scan_error", "error": str(e)})
+        raise
+
+
+# ─── Results ───────────────────────────────────────────────────────────────────
+
+@app.get("/api/results")
+async def get_results(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(DuplicateGroup))
+    rows = result.scalars().all()
+
+    groups: Dict[str, dict] = {}
+    for row in rows:
+        if row.group_id not in groups:
+            groups[row.group_id] = {
+                "group_id": row.group_id,
+                "match_type": row.match_type,
+                "file_type": "",
+                "files": [],
+            }
+
+        # Get file info
+        file_result = await db.execute(
+            select(ProcessedFile).where(ProcessedFile.path == row.file_path)
+        )
+        pf = file_result.scalar_one_or_none()
+
+        file_info = {
+            "path": row.file_path,
+            "similarity": row.similarity,
+            "exists": os.path.exists(row.file_path),
+        }
+        if pf:
+            file_info.update({
+                "file_type": pf.file_type,
+                "size": pf.size,
+                "name": os.path.basename(row.file_path),
+            })
+            if not groups[row.group_id]["file_type"]:
+                groups[row.group_id]["file_type"] = pf.file_type
+
+        groups[row.group_id]["files"].append(file_info)
+
+    return list(groups.values())
+
+
+# ─── File operations ───────────────────────────────────────────────────────────
+
+class DeleteFileRequest(BaseModel):
+    path: str
+
+
+@app.post("/api/file/delete")
+async def delete_file(req: DeleteFileRequest, db: AsyncSession = Depends(get_db)):
+    if not os.path.exists(req.path):
+        raise HTTPException(404, "File not found")
+    os.remove(req.path)
+
+    # Remove from DB
+    await db.execute(delete(ProcessedFile).where(ProcessedFile.path == req.path))
+    await db.execute(delete(DuplicateGroup).where(DuplicateGroup.file_path == req.path))
+    await db.commit()
+
+    return {"status": "deleted", "path": req.path}
+
+
+@app.get("/api/file/preview")
+async def get_preview(path: str):
+    """Return base64 thumbnail for images and video."""
+    import base64
+    import subprocess
+    import tempfile
+    from io import BytesIO
+    from PIL import Image
+
+    if not os.path.exists(path):
+        raise HTTPException(404, "File not found")
+
+    ext = os.path.splitext(path)[1].lower()
+    VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".webm", ".m4v", ".3gp", ".ts", ".mts", ".m2ts", ".vob", ".ogv"}
+
+    try:
+        if ext in VIDEO_EXTS:
+            # Extract frame at 5% duration (handles very short and very long videos)
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
+                tmp_path = tmp.name
+            try:
+                # First get duration
+                probe = subprocess.run(
+                    ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                     "-of", "default=noprint_wrappers=1:nokey=1", path],
+                    capture_output=True, text=True, timeout=10
+                )
+                try:
+                    duration = float(probe.stdout.strip())
+                    seek = min(duration * 0.05, 5.0)  # 5% or max 5s
+                except Exception:
+                    seek = 0.0
+
+                result = subprocess.run(
+                    ["ffmpeg",
+                     "-ss", str(seek),
+                     "-i", path,
+                     "-frames:v", "1",
+                     "-q:v", "3",
+                     "-vf", "scale=600:-2",
+                     "-f", "image2",
+                     tmp_path, "-y"],
+                    capture_output=True, timeout=20
+                )
+                if os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 100:
+                    img = Image.open(tmp_path).convert("RGB")
+                else:
+                    raise Exception(f"ffmpeg failed: {result.stderr.decode()[-200:]}")
+            finally:
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+        else:
+            img = Image.open(path).convert("RGB")
+
+        img.thumbnail((800, 800))
+        buf = BytesIO()
+        img.save(buf, format="JPEG", quality=82)
+        encoded = base64.b64encode(buf.getvalue()).decode()
+        return {"data": f"data:image/jpeg;base64,{encoded}"}
+    except Exception as e:
+        print(f"Preview error for {path}: {e}")
+        raise HTTPException(500, str(e))
+
+
+@app.post("/api/db/reset")
+async def reset_database(db: AsyncSession = Depends(get_db)):
+    await db.execute(delete(ProcessedFile))
+    await db.execute(delete(DuplicateGroup))
+    await db.commit()
+    return {"status": "reset"}
+
+
+# ─── WebSocket ─────────────────────────────────────────────────────────────────
+
+@app.websocket("/ws")
+async def websocket_endpoint(ws: WebSocket):
+    await ws.accept()
+    active_ws.append(ws)
+    try:
+        # Send current state on connect
+        await ws.send_json({"type": "state", **scan_state})
+        while True:
+            await ws.receive_text()  # keep alive
+    except WebSocketDisconnect:
+        pass
+    finally:
+        if ws in active_ws:
+            active_ws.remove(ws)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8765)
