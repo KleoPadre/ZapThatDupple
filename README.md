@@ -26,7 +26,7 @@
 ---
 
 ## Screenshots
-
+<div align="center">
 <img width="756" height="506" alt="SCR-20260310-tjtm" src="https://github.com/user-attachments/assets/a9853773-422c-4609-97f1-0d90263f0f5d" />
 
 
@@ -35,7 +35,7 @@
 <img width="756" height="506" alt="SCR-20260310-tjko" src="https://github.com/user-attachments/assets/2c9db658-642f-49d4-b0a9-ebd4d0a01b2a" />
 
 <img width="756" height="506" alt="SCR-20260310-tjmi" src="https://github.com/user-attachments/assets/90493b75-156e-4084-ab96-8ef120008e3a" />
-
+</div>
 
 ---
 
