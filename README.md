@@ -26,7 +26,9 @@
 ## Screenshots
 
 <!-- MAIN SCAN WINDOW -->
-> **scan.png** — Place screenshot of the main scan window here
+![Снимок экрана 2026-03-10 в 13 15 40](https://github.com/user-attachments/assets/cd05ee0f-5fbe-4f62-a299-0e04461d8ad7)
+
+![Снимок экрана 2026-03-10 в 13 17 23](https://github.com/user-attachments/assets/065671c4-3b2e-4e2b-9c8f-8426be7cc8b1)
 <!-- ![Scan](docs/screenshots/scan.png) -->
 
 <!-- RESULTS - IMAGES -->
@@ -38,7 +40,10 @@
 <!-- ![Results - Audio](docs/screenshots/results-audio.png) -->
 
 <!-- SETTINGS -->
-> **settings.png** — Place screenshot of settings page here
+![Снимок экрана 2026-03-10 в 13 16 01](https://github.com/user-attachments/assets/9c85019f-d750-43b4-9ace-3797b23423d8)
+
+
+
 <!-- ![Settings](docs/screenshots/settings.png) -->
 
 ---
