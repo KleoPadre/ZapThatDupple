@@ -23,15 +23,15 @@ export function ModelsPage({ t }: { t: any }) {
   const [models, setModels] = useState<ModelsData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [downloading, setDownloading] = useState<Set<string>>(new Set())
-  const { settings, setSettings } = useStore()
+  const { settings, setSettings, lang } = useStore()
 
   const loadModels = async () => {
     try {
-      const data = await getModels()
+      const data = await getModels(lang)
       setModels(data)
       setError(null)
     } catch (e: any) {
-      setError('Нет соединения с backend. Проверьте ~/Zap that Dupple/app.log')
+      setError('No connection to backend. Check ~/Zap that Dupple/app.log')
     }
   }
 
@@ -39,7 +39,7 @@ export function ModelsPage({ t }: { t: any }) {
     loadModels()
     const interval = setInterval(loadModels, 5000)
     return () => clearInterval(interval)
-  }, [])
+  }, [lang])
 
   const stopDownloading = (modelId: string) => {
     setDownloading(prev => { const n = new Set(prev); n.delete(modelId); return n })
@@ -101,18 +101,18 @@ export function ModelsPage({ t }: { t: any }) {
       <div className="p-8 flex items-center justify-center h-full">
         <div className="flex items-center gap-3 text-white/30">
           <div className="w-4 h-4 border-2 border-white/20 border-t-violet-400 rounded-full animate-spin" />
-          Подключение к backend...
+          {t.common.connecting}
         </div>
       </div>
     )
   }
 
-  const ModelCard = ({ model, selected, onSelect, onDownload, isDownloading }: {
+  const ModelCard = ({ model, selected, onSelect, onDownload, isDownloading, t }: {
     model: ModelMeta, selected: boolean,
-    onSelect: () => void, onDownload: () => void, isDownloading: boolean
+    onSelect: () => void, onDownload: () => void, isDownloading: boolean, t: any
   }) => {
     const sizeMb = model.size_mb
-    const sizeStr = sizeMb >= 1000 ? `${(sizeMb/1024).toFixed(1)} GB` : sizeMb > 0 ? `${sizeMb} MB` : '—'
+    const sizeStr = sizeMb >= 1000 ? `${(sizeMb/1024).toFixed(1)} ${t.models.gb}` : sizeMb > 0 ? `${sizeMb} ${t.models.mb}` : '—'
 
     return (
       <div className={`p-4 rounded-xl border transition-all ${selected ? 'border-violet-500/50 bg-violet-500/10' : 'border-white/5 bg-white/5 hover:border-white/10'}`}>
@@ -120,7 +120,7 @@ export function ModelsPage({ t }: { t: any }) {
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-1">
               <h3 className="text-white/80 text-sm font-medium">{model.name}</h3>
-              {selected && <span className="text-xs text-violet-400 bg-violet-500/15 px-2 py-0.5 rounded-full">Выбрана</span>}
+              {selected && <span className="text-xs text-violet-400 bg-violet-500/15 px-2 py-0.5 rounded-full">{t.models.selected}</span>}
             </div>
             <p className="text-white/30 text-xs leading-relaxed mb-2">{model.description}</p>
             {sizeMb > 0 && (
@@ -132,23 +132,23 @@ export function ModelsPage({ t }: { t: any }) {
           <div className="flex flex-col gap-2 shrink-0">
             {model.hf_id === null ? (
               <span className="text-green-400/70 text-xs flex items-center gap-1">
-                <CheckCircle size={12} />Встроена
+                <CheckCircle size={12} />{t.models.builtin}
               </span>
             ) : model.downloaded ? (
               <span className="text-green-400/70 text-xs flex items-center gap-1">
-                <CheckCircle size={12} />Загружена
+                <CheckCircle size={12} />{t.models.downloaded}
               </span>
             ) : (
               <button onClick={onDownload} disabled={isDownloading}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-all text-xs disabled:opacity-50">
                 {isDownloading ? <span className="animate-spin">↻</span> : <Download size={12} />}
-                {isDownloading ? 'Загрузка...' : 'Скачать'}
+                {isDownloading ? t.models.downloading : t.models.download}
               </button>
             )}
             {model.downloaded && !selected && model.hf_id !== null && (
               <button onClick={onSelect}
                 className="px-3 py-1.5 rounded-lg bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 transition-all text-xs">
-                Использовать
+                {t.models.select}
               </button>
             )}
           </div>
@@ -171,12 +171,12 @@ export function ModelsPage({ t }: { t: any }) {
     <div className="p-8 max-w-2xl mx-auto">
       <h1 className="text-2xl font-semibold text-white mb-2">{t.models.title}</h1>
       <p className="text-white/30 text-sm mb-8">
-        Модели хранятся в: <code className="text-violet-400/70 text-xs">~/Zap that Dupple/models/</code>
+        {t.models.modelsStoredAt}: <code className="text-violet-400/70 text-xs">~/Zap that Dupple/models/</code>
       </p>
 
-      <Section icon={Cpu} title="Изображения и Видео (CLIP)">
+      <Section icon={Cpu} title={t.models.imageModels}>
         {models.image.map(m => (
-          <ModelCard key={m.id} model={m}
+          <ModelCard key={m.id} model={m} t={t}
             selected={settings.image_model === m.id}
             onSelect={() => setSettings({ image_model: m.id })}
             onDownload={() => handleDownload(m.id)}
@@ -184,9 +184,9 @@ export function ModelsPage({ t }: { t: any }) {
         ))}
       </Section>
 
-      <Section icon={FileText} title="Документы">
+      <Section icon={FileText} title={t.models.textModels}>
         {models.text.map(m => (
-          <ModelCard key={m.id} model={m}
+          <ModelCard key={m.id} model={m} t={t}
             selected={settings.text_model === m.id}
             onSelect={() => setSettings({ text_model: m.id })}
             onDownload={() => handleDownload(m.id)}
@@ -194,9 +194,9 @@ export function ModelsPage({ t }: { t: any }) {
         ))}
       </Section>
 
-      <Section icon={Music} title="Аудио">
+      <Section icon={Music} title={t.models.audioModels}>
         {models.audio.map(m => (
-          <ModelCard key={m.id} model={m}
+          <ModelCard key={m.id} model={m} t={t}
             selected={false} onSelect={() => {}} onDownload={() => {}}
             isDownloading={false} />
         ))}

@@ -72,15 +72,16 @@ async def broadcast(message: dict):
 
 
 @app.get("/api/models")
-async def get_models():
+async def get_models(lang: str = "ru"):
     result = {}
     for category, models in AVAILABLE_MODELS.items():
         result[category] = []
         for model_id, meta in models.items():
-            result[category].append({
-                **meta,
-                "downloaded": model_manager.is_model_downloaded(model_id),
-            })
+            description = meta.get("description_en", meta["description"]) if lang == "en" else meta["description"]
+            entry = {k: v for k, v in meta.items() if not k.startswith("description")}
+            entry["description"] = description
+            entry["downloaded"] = model_manager.is_model_downloaded(model_id)
+            result[category].append(entry)
     return result
 
 
