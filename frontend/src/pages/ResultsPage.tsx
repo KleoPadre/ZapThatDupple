@@ -90,10 +90,16 @@ function ImagePreview({ path, fileType, onClick }: { path: string; fileType: str
   )
 
   return (
-    <div className="relative group cursor-zoom-in aspect-video overflow-hidden rounded-lg" onClick={() => onClick(src)}>
+    <div className={`relative group ${fileType === 'video' ? 'cursor-pointer' : 'cursor-zoom-in'} aspect-video overflow-hidden rounded-lg`} onClick={() => onClick(src)}>
       <img src={src} alt="" className="w-full h-full object-cover" />
       <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-        <ZoomIn size={22} className="text-white drop-shadow" />
+        {fileType === 'video' ? (
+          <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="white"><path d="M4 2.5L15 9L4 15.5V2.5Z"/></svg>
+          </div>
+        ) : (
+          <ZoomIn size={22} className="text-white drop-shadow" />
+        )}
       </div>
       {fileType === 'video' && (
         <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-1.5 py-0.5 rounded flex items-center gap-1">
@@ -104,9 +110,10 @@ function ImagePreview({ path, fileType, onClick }: { path: string; fileType: str
   )
 }
 
-function AudioCard({ file, onDelete, onReveal, t }: { file: FileEntry; onDelete: () => void; onReveal: () => void; t: any }) {
+function AudioCard({ file, onDelete, onReveal, onToggle, selected, t }: { file: FileEntry; onDelete: () => void; onReveal: () => void; onToggle: () => void; selected: boolean; t: any }) {
   return (
-    <div className={`flex items-center gap-4 px-4 py-3 rounded-xl bg-black/20 border border-white/5 ${!file.exists ? 'opacity-40' : ''}`}>
+    <div className={`flex items-center gap-4 px-4 py-3 rounded-xl bg-black/20 border transition-all ${selected ? 'border-violet-500/60 ring-1 ring-violet-500/30' : 'border-white/5'} ${!file.exists ? 'opacity-40' : ''}`}>
+      {file.exists && <Checkbox checked={selected} onChange={onToggle} />}
       {/* Icon */}
       <div className="w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center shrink-0">
         <Music size={18} className="text-violet-400" />
@@ -152,9 +159,10 @@ function AudioCard({ file, onDelete, onReveal, t }: { file: FileEntry; onDelete:
   )
 }
 
-function DocCard({ file, onDelete, onReveal, t }: { file: FileEntry; onDelete: () => void; onReveal: () => void; t: any }) {
+function DocCard({ file, onDelete, onReveal, onToggle, selected, t }: { file: FileEntry; onDelete: () => void; onReveal: () => void; onToggle: () => void; selected: boolean; t: any }) {
   return (
-    <div className={`flex items-center gap-4 px-4 py-3 rounded-xl bg-black/20 border border-white/5 ${!file.exists ? 'opacity-40' : ''}`}>
+    <div className={`flex items-center gap-4 px-4 py-3 rounded-xl bg-black/20 border transition-all ${selected ? 'border-violet-500/60 ring-1 ring-violet-500/30' : 'border-white/5'} ${!file.exists ? 'opacity-40' : ''}`}>
+      {file.exists && <Checkbox checked={selected} onChange={onToggle} />}
       <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center shrink-0">
         <FileText size={18} className="text-blue-400" />
       </div>
@@ -191,8 +199,8 @@ function DocCard({ file, onDelete, onReveal, t }: { file: FileEntry; onDelete: (
   )
 }
 
-// ── Lightbox ──────────────────────────────────────────────────────────────────
-function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
+// ── Image Lightbox ────────────────────────────────────────────────────────────
+function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handler)
@@ -200,24 +208,120 @@ function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
   }, [onClose])
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
-      onClick={onClose}
-    >
-      <button
-        className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-all z-10"
-        onClick={onClose}
-      >
+    <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center" onClick={onClose}>
+      <button className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-all z-10" onClick={onClose}>
         <X size={20} />
       </button>
-      <img
-        src={src}
-        alt=""
-        className="max-w-full max-h-full object-contain select-none"
-        style={{ maxWidth: '100vw', maxHeight: '100vh' }}
-        onClick={(e) => e.stopPropagation()}
-        draggable={false}
+      <img src={src} alt="" className="max-w-full max-h-full object-contain select-none" style={{ maxWidth: '100vw', maxHeight: '100vh' }} onClick={(e) => e.stopPropagation()} draggable={false} />
+    </div>
+  )
+}
+
+// ── Video Lightbox ────────────────────────────────────────────────────────────
+function VideoLightbox({ path, onClose }: { path: string; onClose: () => void }) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [playing, setPlaying] = useState(false)
+  const [current, setCurrent] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [dragging, setDragging] = useState(false)
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+      if (e.key === ' ') { e.preventDefault(); togglePlay() }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose, playing])
+
+  const togglePlay = () => {
+    const v = videoRef.current
+    if (!v) return
+    playing ? v.pause() : v.play()
+  }
+
+  const fmt = (s: number) => {
+    if (!isFinite(s)) return '0:00'
+    const m = Math.floor(s / 60)
+    const sec = Math.floor(s % 60)
+    return `${m}:${sec.toString().padStart(2, '0')}`
+  }
+
+  const seek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    if (videoRef.current) videoRef.current.currentTime = ratio * duration
+    setCurrent(ratio * duration)
+  }
+
+  const fileUrl = `file://${path}`
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/97 flex flex-col items-center justify-center" onClick={onClose}>
+      <button className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-all z-10" onClick={onClose}>
+        <X size={20} />
+      </button>
+
+      {/* Video */}
+      <video
+        ref={videoRef}
+        src={fileUrl}
+        className="max-w-full max-h-[80vh] rounded-lg shadow-2xl"
+        style={{ maxWidth: '90vw' }}
+        onClick={(e) => { e.stopPropagation(); togglePlay() }}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onTimeUpdate={() => { if (!dragging && videoRef.current) setCurrent(videoRef.current.currentTime) }}
+        onLoadedMetadata={() => { if (videoRef.current) setDuration(videoRef.current.duration) }}
+        onEnded={() => setPlaying(false)}
+        playsInline
       />
+
+      {/* Controls */}
+      <div
+        className="mt-4 w-full max-w-2xl px-6 flex flex-col gap-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Seek bar */}
+        <div
+          className="relative h-1.5 bg-white/15 rounded-full cursor-pointer group"
+          onClick={seek}
+          onMouseDown={() => setDragging(true)}
+          onMouseUp={() => setDragging(false)}
+          onMouseMove={(e) => { if (dragging) seek(e) }}
+        >
+          <div
+            className="absolute inset-y-0 left-0 bg-violet-500 rounded-full transition-none"
+            style={{ width: duration ? `${(current / duration) * 100}%` : '0%' }}
+          />
+          <div
+            className="absolute top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{ left: duration ? `calc(${(current / duration) * 100}% - 7px)` : '-7px' }}
+          />
+        </div>
+
+        {/* Bottom row: play + time */}
+        <div className="flex items-center gap-4">
+          <button
+            onClick={togglePlay}
+            className="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-all"
+          >
+            {playing ? (
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <rect x="2" y="1" width="4" height="12" rx="1"/>
+                <rect x="8" y="1" width="4" height="12" rx="1"/>
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <path d="M3 1.5L12 7L3 12.5V1.5Z"/>
+              </svg>
+            )}
+          </button>
+          <span className="text-white/60 text-sm font-mono tabular-nums">
+            {fmt(current)} / {fmt(duration)}
+          </span>
+        </div>
+      </div>
     </div>
   )
 }
@@ -252,13 +356,66 @@ const MATCH_LABELS: any = {
   semantic: { color: 'text-blue-400 bg-blue-500/10' },
 }
 
+// ── Checkbox ──────────────────────────────────────────────────────────────────
+function Checkbox({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onChange() }}
+      className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all shrink-0 ${
+        checked
+          ? 'bg-violet-500 border-violet-500'
+          : 'bg-transparent border-white/20 hover:border-violet-400'
+      }`}
+    >
+      {checked && (
+        <svg width="11" height="9" viewBox="0 0 11 9" fill="none">
+          <path d="M1 4L4 7L10 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+      )}
+    </button>
+  )
+}
+
+// ── Bulk delete confirm ───────────────────────────────────────────────────────
+function BulkDeleteModal({ paths, onConfirm, onCancel, t }: { paths: string[]; onConfirm: () => void; onCancel: () => void; t: any }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-8">
+      <div className="bg-[#1a1a1f] border border-white/10 rounded-2xl p-6 max-w-sm w-full">
+        <div className="flex items-center gap-3 mb-4">
+          <AlertTriangle className="text-red-400" size={20} />
+          <h3 className="font-semibold text-white">{t.results.deleteBulkConfirm}</h3>
+        </div>
+        <p className="text-white/50 text-sm mb-1">
+          {t.results.deleteBulkDesc}<span className="text-white font-semibold">{paths.length}</span>
+        </p>
+        <p className="text-white/30 text-xs mb-4">{t.results.irreversible}</p>
+        <div className="max-h-32 overflow-y-auto mb-5 space-y-1">
+          {paths.map(p => (
+            <p key={p} className="text-white/20 text-[10px] font-mono truncate">{p}</p>
+          ))}
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl bg-white/5 text-white/60 hover:bg-white/10 transition-all text-sm">
+            {t.results.cancel}
+          </button>
+          <button onClick={onConfirm} className="flex-1 py-2.5 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-all text-sm font-medium">
+            {t.results.confirm}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export function ResultsPage({ t }: { t: any }) {
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<string>('all')
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  const [lightbox, setLightbox] = useState<{ type: 'image'; src: string } | { type: 'video'; path: string } | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false)
   const { scanState } = useStore()
 
   const loadResults = async () => {
@@ -275,6 +432,28 @@ export function ResultsPage({ t }: { t: any }) {
 
   useEffect(() => { loadResults() }, [scanState.status])
 
+  const toggleSelect = (path: string) => {
+    setSelectedPaths(prev => {
+      const next = new Set(prev)
+      next.has(path) ? next.delete(path) : next.add(path)
+      return next
+    })
+  }
+
+  const handleBulkDelete = async () => {
+    const paths = Array.from(selectedPaths)
+    for (const path of paths) {
+      try { await deleteFile(path) } catch {}
+    }
+    setGroups(prev =>
+      prev
+        .map(g => ({ ...g, files: g.files.filter(f => !paths.includes(f.path)) }))
+        .filter(g => g.files.length > 1)
+    )
+    setSelectedPaths(new Set())
+    setShowBulkConfirm(false)
+  }
+
   const handleDelete = async () => {
     if (!deleteTarget) return
     try {
@@ -289,10 +468,14 @@ export function ResultsPage({ t }: { t: any }) {
   }
 
   const openLightbox = async (path: string, fileType: string) => {
-    try {
-      const data = await getPreview(path)
-      setLightboxSrc(data.data)
-    } catch {}
+    if (fileType === 'video') {
+      setLightbox({ type: 'video', path })
+    } else {
+      try {
+        const data = await getPreview(path)
+        setLightbox({ type: 'image', src: data.data })
+      } catch {}
+    }
   }
 
   const revealInFinder = (path: string) => window.electronAPI?.revealInFinder(path)
@@ -370,12 +553,22 @@ export function ResultsPage({ t }: { t: any }) {
               {isVisual && (
                 <div className="p-4 grid gap-4 grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
                   {group.files.map(file => (
-                    <div key={file.path} className={`rounded-xl bg-black/20 overflow-hidden ${!file.exists ? 'opacity-40' : ''}`}>
-                      <ImagePreview
-                        path={file.path}
-                        fileType={ftype}
-                        onClick={(src) => setLightboxSrc(src)}
-                      />
+                    <div key={file.path} className={`rounded-xl bg-black/20 overflow-hidden ${!file.exists ? 'opacity-40' : ''} ${selectedPaths.has(file.path) ? 'ring-2 ring-violet-500' : ''}`}>
+                      <div className="relative">
+                        <ImagePreview
+                          path={file.path}
+                          fileType={ftype}
+                          onClick={(src) => {
+                            if (ftype === 'video') setLightbox({ type: 'video', path: file.path })
+                            else setLightbox({ type: 'image', src })
+                          }}
+                        />
+                        {file.exists && (
+                          <div className="absolute top-2 left-2">
+                            <Checkbox checked={selectedPaths.has(file.path)} onChange={() => toggleSelect(file.path)} />
+                          </div>
+                        )}
+                      </div>
                       <div className="p-3">
                         <p className="text-white/70 text-xs font-medium truncate mb-1">{file.name}</p>
                         <p className="text-white/30 text-xs mb-1">{formatSize(file.size)}</p>
@@ -417,6 +610,8 @@ export function ResultsPage({ t }: { t: any }) {
                       file={file}
                       onDelete={() => setDeleteTarget(file.path)}
                       onReveal={() => revealInFinder(file.path)}
+                      onToggle={() => toggleSelect(file.path)}
+                      selected={selectedPaths.has(file.path)}
                       t={t}
                     />
                   ))}
@@ -432,6 +627,8 @@ export function ResultsPage({ t }: { t: any }) {
                       file={file}
                       onDelete={() => setDeleteTarget(file.path)}
                       onReveal={() => revealInFinder(file.path)}
+                      onToggle={() => toggleSelect(file.path)}
+                      selected={selectedPaths.has(file.path)}
                       t={t}
                     />
                   ))}
@@ -442,7 +639,8 @@ export function ResultsPage({ t }: { t: any }) {
               {!isVisual && !isAudio && !isDoc && (
                 <div className="p-4 space-y-2">
                   {group.files.map(file => (
-                    <div key={file.path} className={`flex items-center gap-3 px-4 py-3 rounded-xl bg-black/20 border border-white/5 ${!file.exists ? 'opacity-40' : ''}`}>
+                    <div key={file.path} className={`flex items-center gap-3 px-4 py-3 rounded-xl bg-black/20 border transition-all ${selectedPaths.has(file.path) ? 'border-violet-500/60 ring-1 ring-violet-500/30' : 'border-white/5'} ${!file.exists ? 'opacity-40' : ''}`}>
+                      {file.exists && <Checkbox checked={selectedPaths.has(file.path)} onChange={() => toggleSelect(file.path)} />}
                       <div className="flex-1 min-w-0">
                         <p className="text-white/70 text-sm truncate">{file.name}</p>
                         <p className="text-white/30 text-xs">{formatSize(file.size)}</p>
@@ -464,13 +662,44 @@ export function ResultsPage({ t }: { t: any }) {
         })}
       </div>
 
+      {/* Floating bulk action panel */}
+      {selectedPaths.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 px-5 py-3 rounded-2xl bg-[#1a1a1f] border border-white/10 shadow-2xl shadow-black/60">
+          <span className="text-white/60 text-sm">
+            <span className="text-white font-semibold">{selectedPaths.size}</span> {t.results.selectedCount}
+          </span>
+          <button
+            onClick={() => setSelectedPaths(new Set())}
+            className="text-white/30 hover:text-white/60 transition-colors text-xs"
+          >
+            <X size={14} />
+          </button>
+          <button
+            onClick={() => setShowBulkConfirm(true)}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-all text-sm font-medium"
+          >
+            <Trash2 size={14} />
+            {t.results.deleteSelected}
+          </button>
+        </div>
+      )}
+
       {/* Modals */}
-      {lightboxSrc && <Lightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />}
+      {lightbox?.type === 'image' && <ImageLightbox src={lightbox.src} onClose={() => setLightbox(null)} />}
+      {lightbox?.type === 'video' && <VideoLightbox path={lightbox.path} onClose={() => setLightbox(null)} />}
       {deleteTarget && (
         <DeleteConfirmModal
           path={deleteTarget}
           onConfirm={handleDelete}
           onCancel={() => setDeleteTarget(null)}
+          t={t}
+        />
+      )}
+      {showBulkConfirm && (
+        <BulkDeleteModal
+          paths={Array.from(selectedPaths)}
+          onConfirm={handleBulkDelete}
+          onCancel={() => setShowBulkConfirm(false)}
           t={t}
         />
       )}

@@ -52,6 +52,15 @@ export const translations = {
       filterExact: 'Точные',
       filterNear: 'Похожие',
       filterSemantic: 'Семантические',
+      selectAll: 'Выбрать все',
+      deselectAll: 'Снять все',
+      selectGroup: 'Выбрать группу',
+      deselectGroup: 'Снять группу',
+      selectedCount: 'выбрано',
+      deleteSelected: 'Удалить выбранные',
+      deleteBulkConfirm: 'Удалить выбранные файлы?',
+      deleteBulkDesc: 'Будет удалено файлов с диска: ',
+      irreversible: 'Это действие необратимо.',
     },
     // Settings page
     settings: {
@@ -152,6 +161,11 @@ export const translations = {
       filterExact: 'Exact',
       filterNear: 'Near',
       filterSemantic: 'Semantic',
+      selectedCount: 'selected',
+      deleteSelected: 'Delete selected',
+      deleteBulkConfirm: 'Delete selected files?',
+      deleteBulkDesc: 'Files to permanently delete: ',
+      irreversible: 'This action cannot be undone.',
     },
     settings: {
       title: 'Settings',
