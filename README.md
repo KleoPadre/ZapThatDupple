@@ -27,21 +27,15 @@
 
 ## Screenshots
 
-<!-- MAIN SCAN WINDOW -->
-> **scan.png** — Place screenshot of the main scan window here
-<!-- ![Scan](docs/screenshots/scan.png) -->
+<img width="756" height="506" alt="SCR-20260310-tjtm" src="https://github.com/user-attachments/assets/a9853773-422c-4609-97f1-0d90263f0f5d" />
 
-<!-- RESULTS - IMAGES -->
-> **results-images.png** — Place screenshot of image duplicate results here
-<!-- ![Results - Images](docs/screenshots/results-images.png) -->
 
-<!-- RESULTS - AUDIO -->
-> **results-audio.png** — Place screenshot of audio duplicate results here
-<!-- ![Results - Audio](docs/screenshots/results-audio.png) -->
+<img width="756" height="506" alt="SCR-20260310-tjex" src="https://github.com/user-attachments/assets/4bf0e1a6-46de-4af9-90cc-66e7b9b29d84" />
 
-<!-- SETTINGS -->
-> **settings.png** — Place screenshot of settings page here
-<!-- ![Settings](docs/screenshots/settings.png) -->
+<img width="756" height="506" alt="SCR-20260310-tjko" src="https://github.com/user-attachments/assets/2c9db658-642f-49d4-b0a9-ebd4d0a01b2a" />
+
+<img width="756" height="506" alt="SCR-20260310-tjmi" src="https://github.com/user-attachments/assets/90493b75-156e-4084-ab96-8ef120008e3a" />
+
 
 ---
 
