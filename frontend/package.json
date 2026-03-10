@@ -85,7 +85,8 @@
         {
           "target": "nsis",
           "arch": [
-            "x64"
+            "x64",
+            "arm64"
           ]
         }
       ],
@@ -93,10 +94,14 @@
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Zap that Dupple",
       "installerIcon": "assets/icon.png",
       "uninstallerIcon": "assets/icon.png",
-      "shortcutName": "Zap that Dupple"
+      "installerHeaderIcon": "assets/icon.png"
     }
   },
   "productName": "Zap that Dupple"

@@ -6,18 +6,16 @@ import fs from 'fs'
 
 // ── Single instance lock ──────────────────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock()
-if (!gotLock) {
-  app.quit()
-  process.exit(0)
-}
+if (!gotLock) { app.quit(); process.exit(0) }
 
 let mainWindow: BrowserWindow | null = null
 let backendProcess: ChildProcess | null = null
 
 const BACKEND_PORT = 8765
 const isPackaged = app.isPackaged
+const isWindows = process.platform === 'win32'
 
-// Log file
+// ── Logging ───────────────────────────────────────────────────────────────────
 const logDir = path.join(app.getPath('home'), 'Zap that Dupple')
 if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true })
 const logFile = path.join(logDir, 'app.log')
@@ -34,42 +32,51 @@ function getBackendDir(): string {
   if (isPackaged) {
     return path.join(process.resourcesPath, 'backend_app')
   }
-  // Dev / .command launcher: backend is sibling of frontend/
   return path.join(__dirname, '../../backend')
 }
 
-function getPythonPath(backendDir: string): string {
+function getBackendExecutable(): { cmd: string; args: string[] } {
+  const backendDir = getBackendDir()
+
   if (isPackaged) {
-    return path.join(backendDir, 'backend_app') // PyInstaller binary
+    // PyInstaller binary
+    const exe = isWindows
+      ? path.join(backendDir, 'backend_app.exe')
+      : path.join(backendDir, 'backend_app')
+    return { cmd: exe, args: [] }
   }
-  // Try venv first, fallback to system python3
-  const venvPython = path.join(backendDir, 'venv/bin/python3')
-  if (fs.existsSync(venvPython)) return venvPython
-  return 'python3'
+
+  // Dev mode — find python in venv
+  const venvPython = isWindows
+    ? path.join(backendDir, 'venv', 'Scripts', 'python.exe')
+    : path.join(backendDir, 'venv', 'bin', 'python3')
+
+  const python = fs.existsSync(venvPython) ? venvPython : (isWindows ? 'python' : 'python3')
+  return { cmd: python, args: ['main.py'] }
 }
 
 // ── Start backend ─────────────────────────────────────────────────────────────
 function startBackend() {
   const backendDir = getBackendDir()
-  log(`Backend dir: ${backendDir}`)
+  const { cmd, args } = getBackendExecutable()
 
-  if (isPackaged) {
-    const exe = getPythonPath(backendDir)
-    log(`Starting packaged backend: ${exe}`)
-    backendProcess = spawn(exe, [], {
-      cwd: backendDir,
-      env: { ...process.env, PYTHONUNBUFFERED: '1' },
-      stdio: 'pipe',
-    })
-  } else {
-    const python = getPythonPath(backendDir)
-    log(`Starting dev backend: ${python} main.py in ${backendDir}`)
-    backendProcess = spawn(python, ['main.py'], {
-      cwd: backendDir,
-      env: { ...process.env, PYTHONUNBUFFERED: '1' },
-      stdio: 'pipe',
-    })
+  // Log diagnostics
+  log(`Backend dir: ${backendDir} (exists=${fs.existsSync(backendDir)})`)
+  log(`Backend exe: ${cmd} (exists=${fs.existsSync(cmd)})`)
+  if (fs.existsSync(backendDir)) {
+    try {
+      const entries = fs.readdirSync(backendDir).slice(0, 20)
+      log(`Backend dir contents: ${entries.join(', ')}`)
+    } catch (e) {}
   }
+
+  backendProcess = spawn(cmd, args, {
+    cwd: backendDir,
+    env: { ...process.env, PYTHONUNBUFFERED: '1' },
+    stdio: 'pipe',
+    // On Windows, don't show console window
+    ...(isWindows ? { windowsHide: true } : {}),
+  })
 
   backendProcess.stdout?.on('data', (d) => log(`[backend] ${d.toString().trim()}`))
   backendProcess.stderr?.on('data', (d) => log(`[backend:err] ${d.toString().trim()}`))
@@ -77,8 +84,19 @@ function startBackend() {
   backendProcess.on('error', (e) => log(`Backend spawn error: ${e.message}`))
 }
 
-// ── Wait for backend port ─────────────────────────────────────────────────────
-function waitForBackend(port: number, timeout = 40000): Promise<void> {
+// ── Port check ────────────────────────────────────────────────────────────────
+function isPortInUse(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = new net.Socket()
+    socket.setTimeout(300)
+    socket
+      .connect(port, '127.0.0.1', () => { socket.destroy(); resolve(true) })
+      .on('error', () => { socket.destroy(); resolve(false) })
+      .on('timeout', () => { socket.destroy(); resolve(false) })
+  })
+}
+
+function waitForBackend(port: number, timeout = 60000): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now()
     const check = () => {
@@ -93,15 +111,12 @@ function waitForBackend(port: number, timeout = 40000): Promise<void> {
         .on('error', () => {
           socket.destroy()
           if (Date.now() - start > timeout) {
-            reject(new Error(`Backend did not start within ${timeout / 1000}s — check ~/ZapThatDupple/app.log`))
+            reject(new Error(`Backend did not start within ${timeout / 1000}s\nLog: ${logFile}`))
           } else {
-            setTimeout(check, 500)
+            setTimeout(check, 600)
           }
         })
-        .on('timeout', () => {
-          socket.destroy()
-          setTimeout(check, 500)
-        })
+        .on('timeout', () => { socket.destroy(); setTimeout(check, 600) })
     }
     check()
   })
@@ -109,36 +124,33 @@ function waitForBackend(port: number, timeout = 40000): Promise<void> {
 
 // ── Frontend URL/path ─────────────────────────────────────────────────────────
 function getFrontendPath(): { type: 'file' | 'url'; value: string } {
-  // Packaged app
   if (isPackaged) {
     return { type: 'file', value: path.join(__dirname, '../dist/index.html') }
   }
-  // Check if pre-built dist exists (launched via .command)
   const distPath = path.join(__dirname, '../dist/index.html')
   if (fs.existsSync(distPath)) {
     log(`Loading from pre-built dist: ${distPath}`)
     return { type: 'file', value: distPath }
   }
-  // Dev server
-  log('Loading from Vite dev server: http://localhost:5173')
+  log('Loading from Vite dev server')
   return { type: 'url', value: 'http://localhost:5173' }
 }
 
 // ── Create window ─────────────────────────────────────────────────────────────
 function createWindow() {
   const iconPath = isPackaged
-    ? path.join(process.resourcesPath, 'assets/icon.png')
+    ? path.join(process.resourcesPath, 'assets', 'icon.png')
     : path.join(__dirname, '../assets/icon.png')
 
   mainWindow = new BrowserWindow({
-    icon: iconPath,
     width: 1400,
     height: 900,
     minWidth: 1100,
     minHeight: 700,
-    titleBarStyle: 'hiddenInset',
+    titleBarStyle: isWindows ? 'default' : 'hiddenInset',
     backgroundColor: '#0f0f11',
     show: false,
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -148,11 +160,8 @@ function createWindow() {
   })
 
   const { type, value } = getFrontendPath()
-  if (type === 'file') {
-    mainWindow.loadFile(value)
-  } else {
-    mainWindow.loadURL(value)
-  }
+  if (type === 'file') mainWindow.loadFile(value)
+  else mainWindow.loadURL(value)
 
   mainWindow.webContents.on('did-finish-load', () => {
     mainWindow?.show()
@@ -166,26 +175,13 @@ function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null })
 }
 
-// ── Check if port in use ─────────────────────────────────────────────────────
-function isPortInUse(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = new net.Socket()
-    socket.setTimeout(300)
-    socket
-      .connect(port, '127.0.0.1', () => { socket.destroy(); resolve(true) })
-      .on('error', () => { socket.destroy(); resolve(false) })
-      .on('timeout', () => { socket.destroy(); resolve(false) })
-  })
-}
-
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
-  log('App starting...')
+  log(`App starting (packaged=${isPackaged}, platform=${process.platform})`)
 
-  // Only start backend if not already running (launched via .command)
   const alreadyRunning = await isPortInUse(BACKEND_PORT)
   if (alreadyRunning) {
-    log('Backend already running on port ' + BACKEND_PORT + ', skipping spawn')
+    log('Backend already running, skipping spawn')
   } else {
     startBackend()
   }
@@ -194,7 +190,21 @@ app.whenReady().then(async () => {
     await waitForBackend(BACKEND_PORT)
   } catch (e: any) {
     log(`ERROR: ${e.message}`)
-    dialog.showErrorBox('ZapThatDupple — Backend Error', `${e.message}\n\nЛог: ~/ZapThatDupple/app.log`)
+    // Only show error dialog in packaged mode — in dev the .bat already handles it
+    if (isPackaged) {
+      const choice = dialog.showMessageBoxSync({
+        type: 'error',
+        title: 'Zap that Dupple — Backend Error',
+        message: 'Backend failed to start',
+        detail: `${e.message}\n\nLog file: ${logFile}`,
+        buttons: ['Open Log', 'Continue Anyway'],
+        defaultId: 1,
+      })
+      if (choice === 0) {
+        shell.openPath(logFile)
+      }
+      // Continue regardless — user chose to proceed
+    }
   }
 
   createWindow()
@@ -218,9 +228,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
-  backendProcess?.kill()
-})
+app.on('before-quit', () => { backendProcess?.kill() })
 
 // ── IPC ───────────────────────────────────────────────────────────────────────
 ipcMain.handle('show-folder-dialog', async () => {
@@ -239,5 +247,4 @@ ipcMain.handle('open-external', async (_, url: string) => {
 })
 
 ipcMain.handle('get-home-dir', () => app.getPath('home'))
-
 ipcMain.handle('get-log-path', () => logFile)

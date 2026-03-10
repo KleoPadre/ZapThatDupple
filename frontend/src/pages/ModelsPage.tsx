@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Download, CheckCircle, HardDrive, Cpu, FileText, Music, WifiOff } from 'lucide-react'
-import { getModels, downloadModel } from '../utils/api'
+import { getModels, downloadModel, createWebSocket } from '../utils/api'
 import { useStore } from '../store'
 
 interface ModelMeta {
@@ -31,7 +31,7 @@ export function ModelsPage({ t }: { t: any }) {
       setModels(data)
       setError(null)
     } catch (e: any) {
-      setError('Нет соединения с backend. Проверьте ~/ZapThatDupple/app.log')
+      setError('Нет соединения с backend. Проверьте ~/Zap that Dupple/app.log')
     }
   }
 
@@ -41,23 +41,46 @@ export function ModelsPage({ t }: { t: any }) {
     return () => clearInterval(interval)
   }, [])
 
+  const stopDownloading = (modelId: string) => {
+    setDownloading(prev => { const n = new Set(prev); n.delete(modelId); return n })
+  }
+
+  // WebSocket: stop spinner immediately when backend confirms download done
+  useEffect(() => {
+    const ws = createWebSocket((msg) => {
+      if (msg.type === 'model_download_progress' && msg.status === 'downloaded') {
+        stopDownloading(msg.model_id)
+        loadModels()
+      }
+    })
+    return () => ws.close()
+  }, [])
+
   const handleDownload = async (modelId: string) => {
     setDownloading(prev => new Set(prev).add(modelId))
     try {
       await downloadModel(modelId)
-      // Poll until downloaded
+
+      // Poll API every 4s — stops as soon as backend confirms downloaded
+      let attempts = 0
+      const maxAttempts = 120 // 8 minutes max
       const poll = setInterval(async () => {
-        const data = await getModels()
-        setModels(data)
-        const allModels = [...data.image, ...data.text, ...data.audio]
-        const model = allModels.find(m => m.id === modelId)
-        if (model?.downloaded) {
-          clearInterval(poll)
-          setDownloading(prev => { const n = new Set(prev); n.delete(modelId); return n })
+        attempts++
+        try {
+          const data = await getModels()
+          setModels(data)
+          const allModels = [...data.image, ...data.text, ...data.audio]
+          const model = allModels.find(m => m.id === modelId)
+          if (model?.downloaded || attempts >= maxAttempts) {
+            clearInterval(poll)
+            stopDownloading(modelId)
+          }
+        } catch {
+          // backend busy, keep polling
         }
-      }, 3000)
+      }, 4000)
     } catch (e) {
-      setDownloading(prev => { const n = new Set(prev); n.delete(modelId); return n })
+      stopDownloading(modelId)
     }
   }
 
@@ -148,7 +171,7 @@ export function ModelsPage({ t }: { t: any }) {
     <div className="p-8 max-w-2xl mx-auto">
       <h1 className="text-2xl font-semibold text-white mb-2">{t.models.title}</h1>
       <p className="text-white/30 text-sm mb-8">
-        Модели хранятся в: <code className="text-violet-400/70 text-xs">~/ZapThatDupple/models/</code>
+        Модели хранятся в: <code className="text-violet-400/70 text-xs">~/Zap that Dupple/models/</code>
       </p>
 
       <Section icon={Cpu} title="Изображения и Видео (CLIP)">

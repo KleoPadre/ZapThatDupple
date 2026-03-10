@@ -26,26 +26,19 @@
 ## Screenshots
 
 <!-- MAIN SCAN WINDOW -->
-![Снимок экрана 2026-03-10 в 13 15 40](https://github.com/user-attachments/assets/cd05ee0f-5fbe-4f62-a299-0e04461d8ad7)
-
-![Снимок экрана 2026-03-10 в 13 17 23](https://github.com/user-attachments/assets/065671c4-3b2e-4e2b-9c8f-8426be7cc8b1)
+> **scan.png** — Place screenshot of the main scan window here
 <!-- ![Scan](docs/screenshots/scan.png) -->
 
 <!-- RESULTS - IMAGES -->
-<img width="756" height="506" alt="SCR-20260310-mezm" src="https://github.com/user-attachments/assets/14eb1c29-4ec2-48fa-a189-9615d8621c79" />
-
-![Снимок экрана 2026-03-10 в 13 42 38](https://github.com/user-attachments/assets/19555a3e-a549-4390-a423-bb45d21a3171)
+> **results-images.png** — Place screenshot of image duplicate results here
 <!-- ![Results - Images](docs/screenshots/results-images.png) -->
 
 <!-- RESULTS - AUDIO -->
-<img width="756" height="506" alt="SCR-20260310-mfsc" src="https://github.com/user-attachments/assets/79cd94ef-6a36-4ed4-9b78-e5b2209880c6" />
+> **results-audio.png** — Place screenshot of audio duplicate results here
 <!-- ![Results - Audio](docs/screenshots/results-audio.png) -->
 
 <!-- SETTINGS -->
-![Снимок экрана 2026-03-10 в 13 16 01](https://github.com/user-attachments/assets/9c85019f-d750-43b4-9ace-3797b23423d8)
-
-
-
+> **settings.png** — Place screenshot of settings page here
 <!-- ![Settings](docs/screenshots/settings.png) -->
 
 ---

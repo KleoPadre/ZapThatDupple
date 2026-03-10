@@ -46,6 +46,8 @@ AVAILABLE_MODELS = {
             "description": "Быстрая лёгкая модель. ~600MB. Хорошо для большинства случаев.",
             "open_clip_name": "ViT-B-32",
             "open_clip_pretrained": "openai",
+            # open_clip stores as HF dir: models--timm--vit_base_patch32_clip_224.openai
+            "checkpoint_dir_pattern": "vit_base_patch32",
             "checkpoint_pattern": "ViT-B-32",
             "size_mb": 600,
             "type": "clip",
@@ -56,6 +58,8 @@ AVAILABLE_MODELS = {
             "description": "Максимальная точность. ~1.7GB. Рекомендуется для точного сравнения.",
             "open_clip_name": "ViT-L-14",
             "open_clip_pretrained": "openai",
+            # open_clip stores as HF dir: models--timm--vit_large_patch14_clip_224.openai
+            "checkpoint_dir_pattern": "vit_large_patch14",
             "checkpoint_pattern": "ViT-L-14",
             "size_mb": 1700,
             "type": "clip",
@@ -92,32 +96,123 @@ AVAILABLE_MODELS = {
 }
 
 
-def _find_clip_checkpoint(pattern: str) -> bool:
-    """Search for open_clip checkpoint in all possible cache locations."""
+def _find_clip_checkpoint(pattern: str, dir_pattern: str = "") -> bool:
+    """
+    Search for open_clip checkpoint in app dir.
+    open_clip (>=2.20) stores models as HF-style directories:
+      torch_cache/checkpoints/models--timm--vit_base_patch32_clip_224.openai/blobs/<hash>
+    We match the directory name and look for large files inside.
+    """
     search_dirs = [
         TORCH_CACHE / "checkpoints",
         TORCH_CACHE / "hub" / "checkpoints",
-        Path.home() / ".cache" / "torch" / "hub" / "checkpoints",
-        Path.home() / ".cache" / "clip",
     ]
-    for d in search_dirs:
-        if not d.exists():
+    for base in search_dirs:
+        if not base.exists():
             continue
-        for f in d.iterdir():
-            if pattern.replace("-", "").lower() in f.name.replace("-", "").lower():
-                if f.stat().st_size > 1024 * 1024:  # > 1MB = real file
-                    return True
+        for entry in base.iterdir():
+            # Match HF-style directory (e.g. models--timm--vit_base_patch32_clip_224.openai)
+            if entry.is_dir():
+                entry_name = entry.name.lower().replace("-", "").replace("_", "")
+                # Match by dir_pattern (preferred) or old pattern
+                match_str = dir_pattern.lower().replace("-", "").replace("_", "") if dir_pattern else pattern.lower().replace("-", "")
+                if match_str in entry_name:
+                    # Check for large files inside (blobs/ or snapshots/)
+                    for f in entry.rglob("*"):
+                        if f.is_file():
+                            try:
+                                if f.stat().st_size > 50 * 1024 * 1024:
+                                    return True
+                            except Exception:
+                                pass
+            # Also handle plain .pt files (older open_clip)
+            elif entry.is_file():
+                if pattern.replace("-", "").lower() in entry.name.replace("-", "").lower():
+                    try:
+                        if entry.stat().st_size > 1024 * 1024:
+                            return True
+                    except Exception:
+                        pass
     return False
 
 
 def _find_st_model(hf_id: str) -> bool:
-    """Check if sentence_transformers model is cached."""
+    """
+    Check if HuggingFace model is fully downloaded.
+    HF Hub stores actual weights in blobs/ directory (no extension).
+    snapshots/ contains symlinks → unreliable for size checks.
+    We check blobs/ for files > 50MB (model weights are always large).
+    """
     slug = "models--" + hf_id.replace("/", "--")
-    search_dirs = [
-        HF_CACHE / slug,
-        Path.home() / ".cache" / "huggingface" / "hub" / slug,
-    ]
-    return any(d.exists() for d in search_dirs)
+    model_dir = HF_CACHE / slug
+    if not model_dir.exists():
+        return False
+    # Primary: check blobs/ directory (actual file content, no extensions)
+    blobs_dir = model_dir / "blobs"
+    if blobs_dir.exists():
+        try:
+            large_blobs = [
+                f for f in blobs_dir.iterdir()
+                if f.is_file() and f.stat().st_size > 50 * 1024 * 1024  # > 50MB
+            ]
+            if large_blobs:
+                return True
+        except Exception:
+            pass
+    # Fallback: check snapshots for actual files (resolving symlinks)
+    snapshots_dir = model_dir / "snapshots"
+    if snapshots_dir.exists():
+        try:
+            for snap in snapshots_dir.iterdir():
+                if not snap.is_dir():
+                    continue
+                for ext in ("*.safetensors", "*.bin", "*.pt"):
+                    for f in snap.glob(ext):
+                        try:
+                            # resolve() follows symlinks to get real size
+                            real = f.resolve()
+                            if real.exists() and real.stat().st_size > 50 * 1024 * 1024:
+                                return True
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+    return False
+
+
+def _migrate_system_cache():
+    """
+    One-time migration: move models from system cache (~/.cache) to app dir.
+    Called at startup so models downloaded before path fix are not lost.
+    """
+    import shutil
+
+    # CLIP / torch models
+    sys_torch = Path.home() / ".cache" / "torch" / "hub" / "checkpoints"
+    app_ckpt = TORCH_CACHE / "checkpoints"
+    if sys_torch.exists():
+        moved = False
+        for f in sys_torch.iterdir():
+            if f.suffix in (".pt", ".bin", ".pth") and f.stat().st_size > 1024 * 1024:
+                app_ckpt.mkdir(parents=True, exist_ok=True)
+                dest = app_ckpt / f.name
+                if not dest.exists():
+                    print(f"[migrate] Moving {f.name} → app cache")
+                    shutil.move(str(f), str(dest))
+                    moved = True
+        if moved:
+            print("[migrate] CLIP models moved to app cache")
+
+    # HuggingFace models
+    sys_hf = Path.home() / ".cache" / "huggingface" / "hub"
+    if sys_hf.exists():
+        for d in sys_hf.iterdir():
+            if d.name.startswith("models--sentence-transformers"):
+                dest = HF_CACHE / d.name
+                if not dest.exists():
+                    HF_CACHE.mkdir(parents=True, exist_ok=True)
+                    print(f"[migrate] Moving {d.name} → app cache")
+                    shutil.move(str(d), str(dest))
 
 
 class ModelManager:
@@ -134,20 +229,28 @@ class ModelManager:
         meta = all_models.get(model_id)
         if not meta:
             return False
-        if meta.get("hf_id") is None:
-            return True  # built-in
+        # Only truly built-in models (no download needed)
+        if meta.get("type") == "builtin":
+            return True
 
         if meta.get("type") == "clip":
-            return _find_clip_checkpoint(meta["checkpoint_pattern"])
+            return _find_clip_checkpoint(
+                meta["checkpoint_pattern"],
+                meta.get("checkpoint_dir_pattern", "")
+            )
 
-        return _find_st_model(meta["hf_id"])
+        # sentence_transformer
+        hf_id = meta.get("hf_id")
+        if not hf_id:
+            return False
+        return _find_st_model(hf_id)
 
     async def download_model(self, model_id: str, progress_cb: Optional[Callable] = None):
         all_models = {**AVAILABLE_MODELS["image"], **AVAILABLE_MODELS["text"], **AVAILABLE_MODELS["audio"]}
         if model_id not in all_models:
             raise ValueError(f"Unknown model: {model_id}")
         meta = all_models[model_id]
-        if meta.get("hf_id") is None:
+        if meta.get("type") == "builtin":
             return
 
         if progress_cb:
@@ -156,7 +259,13 @@ class ModelManager:
         await asyncio.get_event_loop().run_in_executor(None, self._download_sync, model_id, meta)
 
         if progress_cb:
-            await progress_cb({"status": "downloaded", "model_id": model_id, "progress": 100})
+            # Send both "downloaded" and updated downloaded status so frontend stops spinner
+            await progress_cb({
+                "status": "downloaded",
+                "model_id": model_id,
+                "progress": 100,
+                "is_downloaded": True,
+            })
 
     def _download_sync(self, model_id: str, meta: dict):
         if meta["type"] == "clip":

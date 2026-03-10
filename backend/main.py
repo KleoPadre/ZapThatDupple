@@ -34,11 +34,14 @@ from comparator import find_duplicates
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    # Migrate models from system cache to app dir (one-time, for old installs)
+    from ai.model_manager import _migrate_system_cache
+    _migrate_system_cache()
     yield
     model_manager.unload_all()
 
 
-app = FastAPI(title="ZapThatDupple API", lifespan=lifespan)
+app = FastAPI(title="Zap that Dupple API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -76,7 +79,7 @@ async def get_models():
         for model_id, meta in models.items():
             result[category].append({
                 **meta,
-                "downloaded": model_manager.is_model_downloaded(model_id) or meta.get("hf_id") is None,
+                "downloaded": model_manager.is_model_downloaded(model_id),
             })
     return result
 
@@ -442,6 +445,32 @@ async def delete_file(req: DeleteFileRequest, db: AsyncSession = Depends(get_db)
     return {"status": "deleted", "path": req.path}
 
 
+def _find_bin(name: str) -> str:
+    """Find ffmpeg/ffprobe binary, checking PATH and common install locations."""
+    import shutil
+    found = shutil.which(name)
+    if found:
+        return found
+    candidates = [
+        f"/opt/homebrew/bin/{name}",
+        f"/usr/local/bin/{name}",
+        f"/usr/bin/{name}",
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    # Fallback: try imageio-ffmpeg bundled binary
+    if name == "ffmpeg":
+        try:
+            import imageio_ffmpeg
+            return imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            pass
+    raise FileNotFoundError(
+        f"'{name}' not found. Install ffmpeg: brew install ffmpeg"
+    )
+
+
 @app.get("/api/file/preview")
 async def get_preview(path: str):
     """Return base64 thumbnail for images and video."""
@@ -465,7 +494,7 @@ async def get_preview(path: str):
             try:
                 # First get duration
                 probe = subprocess.run(
-                    ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                    [_find_bin("ffprobe"), "-v", "error", "-show_entries", "format=duration",
                      "-of", "default=noprint_wrappers=1:nokey=1", path],
                     capture_output=True, text=True, timeout=10
                 )
@@ -476,7 +505,7 @@ async def get_preview(path: str):
                     seek = 0.0
 
                 result = subprocess.run(
-                    ["ffmpeg",
+                    [_find_bin("ffmpeg"),
                      "-ss", str(seek),
                      "-i", path,
                      "-frames:v", "1",
