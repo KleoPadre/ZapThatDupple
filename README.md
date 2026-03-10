@@ -32,11 +32,13 @@
 <!-- ![Scan](docs/screenshots/scan.png) -->
 
 <!-- RESULTS - IMAGES -->
-> **results-images.png** — Place screenshot of image duplicate results here
+<img width="756" height="506" alt="SCR-20260310-mezm" src="https://github.com/user-attachments/assets/14eb1c29-4ec2-48fa-a189-9615d8621c79" />
+
+![Снимок экрана 2026-03-10 в 13 42 38](https://github.com/user-attachments/assets/19555a3e-a549-4390-a423-bb45d21a3171)
 <!-- ![Results - Images](docs/screenshots/results-images.png) -->
 
 <!-- RESULTS - AUDIO -->
-> **results-audio.png** — Place screenshot of audio duplicate results here
+<img width="756" height="506" alt="SCR-20260310-mfsc" src="https://github.com/user-attachments/assets/79cd94ef-6a36-4ed4-9b78-e5b2209880c6" />
 <!-- ![Results - Audio](docs/screenshots/results-audio.png) -->
 
 <!-- SETTINGS -->
