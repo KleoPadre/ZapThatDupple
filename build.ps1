@@ -37,13 +37,21 @@ if (Test-Path dist)  { Remove-Item -Recurse -Force dist  }
   --hidden-import=pillow_heif `
   --collect-all=open_clip `
   --collect-all=sentence_transformers `
+  --exclude-module=torch.distributed `
+  --exclude-module=torch.utils.tensorboard `
+  --exclude-module=torch.testing `
+  --exclude-module=torch.ao `
+  --exclude-module=unittest `
+  --exclude-module=IPython `
+  --exclude-module=matplotlib `
+  --exclude-module=pandas `
   --noconfirm --log-level WARN `
   main.py
 
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: PyInstaller failed" -ForegroundColor Red; exit 1 }
 Write-Host "[1/4] Backend done" -ForegroundColor Green
 
-# 2. Frontend (React + Vite)
+# 2. Frontend
 Write-Host "[2/4] Building React frontend..." -ForegroundColor Yellow
 Set-Location "$ScriptDir\frontend"
 & node "$ScriptDir\frontend\node_modules\vite\bin\vite.js" build
@@ -56,12 +64,10 @@ Write-Host "[3/4] Compiling Electron..." -ForegroundColor Yellow
 if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Electron TS compile failed" -ForegroundColor Red; exit 1 }
 Write-Host "[3/4] Electron done" -ForegroundColor Green
 
-# 4. Package with electron-builder
-# FIX: call electron-builder.cmd directly, NOT via `node` (it's a batch file, not JS)
+# 4. Package
 Write-Host "[4/4] Packaging NSIS installer..." -ForegroundColor Yellow
 $arch = if ([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -eq "Arm64") { "arm64" } else { "x64" }
 Write-Host "Detected architecture: $arch" -ForegroundColor Cyan
-
 Set-Location "$ScriptDir\frontend"
 $eb = "$ScriptDir\frontend\node_modules\.bin\electron-builder.cmd"
 & $eb --win --$arch

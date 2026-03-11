@@ -39,9 +39,10 @@
     "appId": "com.zapthatdupple.app",
     "productName": "Zap that Dupple",
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "build"
     },
-    "icon": "assets/icon.png",
+    "icon": "build/icon.ico",
     "files": [
       "dist/**/*",
       "dist-electron/**/*"
@@ -90,7 +91,7 @@
           ]
         }
       ],
-      "icon": "assets/icon.ico",
+      "icon": "build/icon.ico",
       "publisherName": "KleoPadre"
     },
     "nsis": {
@@ -100,9 +101,9 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Zap that Dupple",
-      "installerIcon": "assets/icon.ico",
-      "uninstallerIcon": "assets/icon.ico",
-      "installerHeaderIcon": "assets/icon.ico",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
       "artifactName": "Zap That Dupple.exe"
     }
   },

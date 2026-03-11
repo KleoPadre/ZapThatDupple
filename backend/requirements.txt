@@ -7,7 +7,7 @@ aiosqlite==0.20.0
 pydantic>=2.10.0
 python-multipart==0.0.12
 
-# AI / ML — no version pins, pip picks compatible
+# AI / ML
 torch
 torchvision
 open-clip-torch
@@ -15,7 +15,7 @@ sentence-transformers
 transformers
 huggingface-hub
 
-# File processing — use pre-built wheels only
+# File processing
 Pillow
 pillow-heif
 opencv-python
@@ -27,7 +27,7 @@ openpyxl
 python-pptx
 chardet
 
-# Utilities — numpy without version pin avoids build-from-source
+# Utilities
 imagehash
 numpy
 scipy
