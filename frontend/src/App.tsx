@@ -65,7 +65,7 @@ export default function App() {
       {/* Main layout — sits above drag strip, buttons use no-drag via Sidebar */}
       <div className="flex h-full" style={{ position: 'relative', zIndex: 1 }}>
         <Sidebar t={t} />
-        <main className="flex-1 overflow-auto">
+        <main className="flex-1 overflow-auto h-full">
           {renderPage()}
         </main>
       </div>

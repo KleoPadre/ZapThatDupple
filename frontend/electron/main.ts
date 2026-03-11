@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, dialog, Menu } from 'electron'
 import { spawn, ChildProcess } from 'child_process'
 import path from 'path'
 import net from 'net'
@@ -181,6 +181,7 @@ function createWindow() {
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null)  // Hide File/Edit/View menu bar
   log(`App starting (packaged=${isPackaged}, platform=${process.platform})`)
 
   const alreadyRunning = await isPortInUse(BACKEND_PORT)

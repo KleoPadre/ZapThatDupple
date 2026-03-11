@@ -25,14 +25,23 @@ taskkill /f /im python.exe /fi "WINDOWTITLE eq ZapThatDupple*" 2>nul
 :: Start backend (hidden window)
 start /min "ZapThatDupple-backend" cmd /c "cd /d "%SCRIPT_DIR%backend" && venv\Scripts\python.exe main.py >> "%LOG_FILE%" 2>&1"
 
-:: Wait for backend
+:: Wait for backend (max 60 seconds)
 echo Starting backend...
+set /a WAIT_COUNT=0
 :WAIT
 curl -s http://127.0.0.1:8765/api/settings >nul 2>&1
-if errorlevel 1 (
-  timeout /t 1 /nobreak >nul
-  goto WAIT
+if not errorlevel 1 goto READY
+set /a WAIT_COUNT+=1
+if %WAIT_COUNT% geq 60 (
+  echo ERROR: Backend failed to start after 60 seconds.
+  echo Check log: %LOG_FILE%
+  pause
+  exit /b 1
 )
+timeout /t 1 /nobreak >nul
+goto WAIT
+
+:READY
 echo Backend ready.
 
 :: Start Electron

@@ -70,7 +70,8 @@ export function ScanPage({ t }: { t: any }) {
   }
 
   return (
-    <div className="p-8 max-w-3xl mx-auto">
+    <div className="min-h-full flex items-center justify-center p-8">
+    <div className="w-full max-w-3xl">
       <h1 className="text-2xl font-semibold text-[#F2F4F3] mb-8">{t.scan.title}</h1>
 
       {/* Folder selection */}
@@ -202,6 +203,7 @@ export function ScanPage({ t }: { t: any }) {
           </button>
         )}
       </div>
+    </div>
     </div>
   )
 }

@@ -2,9 +2,9 @@ fastapi[standard]==0.115.0
 uvicorn[standard]==0.30.6
 websockets==13.1
 sqlalchemy[asyncio]==2.0.36
-greenlet==3.1.1
+greenlet>=3.3.2
 aiosqlite==0.20.0
-pydantic==2.9.2
+pydantic>=2.10.0
 python-multipart==0.0.12
 
 # AI / ML — no version pins, pip picks compatible

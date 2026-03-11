@@ -7,8 +7,6 @@ Write-Host "=== Zap that Dupple - Setup ===" -ForegroundColor Cyan
 Write-Host "Working dir: $ScriptDir"
 
 # Warn if on network drive
-$drive = Split-Path -Qualifier $ScriptDir
-$driveType = (Get-PSDrive ($drive.TrimEnd(':'))).Description
 if ($ScriptDir -match "^\\\\") {
     Write-Host ""
     Write-Host "WARNING: You are running from a network path!" -ForegroundColor Red
@@ -42,7 +40,33 @@ if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
     Write-Host "WARNING: ffmpeg not found. Run: winget install Gyan.FFmpeg" -ForegroundColor Yellow
 }
 
-# Python venv
+# FIX 1: ARM64 Windows needs VC++ ARM64 redistributable for rollup / electron native modules
+$nodeArch = & node -e "process.stdout.write(process.arch)"
+if ($nodeArch -eq "arm64") {
+    Write-Host ""
+    Write-Host "ARM64 Node detected - checking VC++ ARM64 redistributable..." -ForegroundColor Yellow
+    $vcKey = "HKLM:\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\arm64"
+    $vcInstalled = (Get-ItemProperty -Path $vcKey -ErrorAction SilentlyContinue)
+    if (-not $vcInstalled) {
+        Write-Host "Installing VC++ ARM64 redistributable (required for native Node modules)..." -ForegroundColor Yellow
+        $vcUrl = "https://aka.ms/vs/17/release/vc_redist.arm64.exe"
+        $vcExe = "$env:TEMP\vc_redist.arm64.exe"
+        try {
+            Invoke-WebRequest -Uri $vcUrl -OutFile $vcExe -UseBasicParsing
+            Start-Process -FilePath $vcExe -ArgumentList "/quiet /norestart" -Wait
+            Write-Host "OK VC++ ARM64 redistributable installed" -ForegroundColor Green
+        } catch {
+            Write-Host "ERROR: Could not auto-install VC++ ARM64 redistributable." -ForegroundColor Red
+            Write-Host "  Download manually from: $vcUrl" -ForegroundColor Red
+            Write-Host "  Install it, then re-run install.ps1" -ForegroundColor Red
+            exit 1
+        }
+    } else {
+        Write-Host "OK VC++ ARM64 redistributable already installed" -ForegroundColor Green
+    }
+}
+
+# FIX 2: Python venv — pydantic pinned to >=2.10.0 which has Python 3.14 prebuilt wheels
 Write-Host ""
 Write-Host "Setting up Python backend..." -ForegroundColor Yellow
 Set-Location "$ScriptDir\backend"
@@ -50,31 +74,28 @@ Set-Location "$ScriptDir\backend"
 if (Test-Path "venv") { Remove-Item -Recurse -Force venv }
 python -m venv venv
 
-$pip = "$ScriptDir\backend\venv\Scripts\pip.exe"
+$pip    = "$ScriptDir\backend\venv\Scripts\pip.exe"
 $python = "$ScriptDir\backend\venv\Scripts\python.exe"
 
 & $python -m pip install --upgrade pip -q
 & $pip install -r requirements.txt
 Write-Host "OK Python backend ready" -ForegroundColor Green
 
-# Node - delete old node_modules to avoid stale macOS symlinks
+# FIX 3: Node install WITHOUT --ignore-scripts so electron/rollup postinstall hooks run
 Write-Host ""
 Write-Host "Installing Node dependencies..." -ForegroundColor Yellow
 Set-Location "$ScriptDir\frontend"
 if (Test-Path "node_modules") { Remove-Item -Recurse -Force node_modules }
-& npm install --ignore-scripts
+& npm install
 Write-Host "OK Node dependencies installed" -ForegroundColor Green
 
-# Build frontend using local node_modules binaries directly
+# Build frontend
 Write-Host ""
 Write-Host "Building frontend..." -ForegroundColor Yellow
-$vite = "$ScriptDir\frontend\node_modules\.bin\vite.cmd"
-$tsc  = "$ScriptDir\frontend\node_modules\.bin\tsc.cmd"
-
-if (-not (Test-Path $vite)) { $vite = "$ScriptDir\frontend\node_modules\vite\bin\vite.js" }
-
-& node $ScriptDir\frontend\node_modules\vite\bin\vite.js build
-& node $ScriptDir\frontend\node_modules\typescript\bin\tsc -p tsconfig.electron.json
+& node "$ScriptDir\frontend\node_modules\vite\bin\vite.js" build
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Frontend build failed" -ForegroundColor Red; exit 1 }
+& node "$ScriptDir\frontend\node_modules\typescript\bin\tsc" -p tsconfig.electron.json
+if ($LASTEXITCODE -ne 0) { Write-Host "ERROR: Electron TypeScript compile failed" -ForegroundColor Red; exit 1 }
 Write-Host "OK Frontend built" -ForegroundColor Green
 
 Set-Location $ScriptDir
