@@ -104,8 +104,13 @@
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
       "installerHeaderIcon": "build/icon.ico",
-      "artifactName": "Zap That Dupple.exe"
-    }
+      "artifactName": "Zap That Dupple.exe",
+      "uninstallDisplayName": "Zap That Dupple"
+    },
+    "extraMetadata": {
+      "version": "1.0.0"
+    },
+    "artifactName": "${productName}.exe"
   },
   "productName": "Zap that Dupple",
   "author": "KleoPadre"

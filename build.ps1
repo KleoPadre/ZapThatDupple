@@ -35,13 +35,9 @@ if (Test-Path dist)  { Remove-Item -Recurse -Force dist  }
   --hidden-import=sqlalchemy.dialects.sqlite `
   --hidden-import=sqlalchemy.ext.asyncio `
   --hidden-import=pillow_heif `
+  --hidden-import=torch.distributed `
   --collect-all=open_clip `
   --collect-all=sentence_transformers `
-  --exclude-module=torch.distributed `
-  --exclude-module=torch.utils.tensorboard `
-  --exclude-module=torch.testing `
-  --exclude-module=torch.ao `
-  --exclude-module=unittest `
   --exclude-module=IPython `
   --exclude-module=matplotlib `
   --exclude-module=pandas `
