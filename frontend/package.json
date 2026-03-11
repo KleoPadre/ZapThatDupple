@@ -110,7 +110,7 @@
     "extraMetadata": {
       "version": "1.0.0"
     },
-    "artifactName": "${productName}.exe"
+    "artifactName": "${productName}.${ext}"
   },
   "productName": "Zap that Dupple",
   "author": "KleoPadre"
