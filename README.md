@@ -27,9 +27,9 @@
 
 ## Screenshots
 <div align="center">
-<img width="756" height="506" alt="SCR-20260311-lcyu" src="https://github.com/user-attachments/assets/0c75d22a-6cb2-4953-810a-b1d3bc48463d" />
+<img width="756" height="506" alt="SCR-20260311-lpwq" src="https://github.com/user-attachments/assets/e073d5cc-d517-4909-87bf-d1a4aa3a7135" />
 
-<img width="756" height="506" alt="SCR-20260311-lgzi" src="https://github.com/user-attachments/assets/eb817080-7849-4d17-9af5-cc9e419d955b" />
+<img width="756" height="506" alt="SCR-20260311-lpou" src="https://github.com/user-attachments/assets/eeedf67b-877d-4b11-81d2-e6727fe014bc" />
 
 <img width="756" height="506" alt="SCR-20260311-liiq" src="https://github.com/user-attachments/assets/123e2b27-bc4d-4512-8850-ef1719549bc8" />
 
