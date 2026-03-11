@@ -120,6 +120,8 @@ After installation, double-click **ZapThatDupple.bat** to launch.
 
 > **Note:** Windows support is experimental. GPU acceleration via CUDA is supported if NVIDIA drivers are installed. Without GPU, the app runs on CPU which is slower.
 
+> **ARM64 Windows (Snapdragon X / Surface Pro X):** The installer automatically installs the required Visual C++ ARM64 Redistributable if it is not already present. An internet connection is required during `install.ps1`.
+
 ---
 
 ## 🔨 Building
@@ -142,7 +144,7 @@ The icon will be built automatically from `frontend/assets/AppIcon.iconset/`.
 .\build.ps1
 ```
 
-Output: `frontend\release\ZapThatDupple Setup 1.0.0.exe`
+Output: `frontend\release\Zap That Dupple.exe`
 
 ---
 
