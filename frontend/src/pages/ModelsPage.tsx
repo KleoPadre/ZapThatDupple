@@ -87,9 +87,9 @@ export function ModelsPage({ t }: { t: any }) {
   if (error) {
     return (
       <div className="p-8 flex flex-col items-center justify-center h-full gap-4">
-        <WifiOff className="text-red-400/60" size={40} />
-        <p className="text-red-400/80 text-sm text-center max-w-sm">{error}</p>
-        <button onClick={loadModels} className="px-4 py-2 rounded-xl bg-white/5 text-white/50 hover:bg-white/10 text-sm transition-all">
+        <WifiOff className="text-[#FF705B]/60" size={40} />
+        <p className="text-[#FF705B]/80 text-sm text-center max-w-sm">{error}</p>
+        <button onClick={loadModels} className="px-4 py-2 rounded-xl bg-[#F2F4F3]/5 text-[#F2F4F3]/50 hover:bg-[#F2F4F3]/10 text-sm transition-all">
           Повторить
         </button>
       </div>
@@ -99,8 +99,8 @@ export function ModelsPage({ t }: { t: any }) {
   if (!models) {
     return (
       <div className="p-8 flex items-center justify-center h-full">
-        <div className="flex items-center gap-3 text-white/30">
-          <div className="w-4 h-4 border-2 border-white/20 border-t-violet-400 rounded-full animate-spin" />
+        <div className="flex items-center gap-3 text-[#F2F4F3]/30">
+          <div className="w-4 h-4 border-2 border-[#F2F4F3]/20 border-t-[#E6E8E6] rounded-full animate-spin" />
           {t.common.connecting}
         </div>
       </div>
@@ -115,39 +115,39 @@ export function ModelsPage({ t }: { t: any }) {
     const sizeStr = sizeMb >= 1000 ? `${(sizeMb/1024).toFixed(1)} ${t.models.gb}` : sizeMb > 0 ? `${sizeMb} ${t.models.mb}` : '—'
 
     return (
-      <div className={`p-4 rounded-xl border transition-all ${selected ? 'border-violet-500/50 bg-violet-500/10' : 'border-white/5 bg-white/5 hover:border-white/10'}`}>
+      <div className={`p-4 rounded-xl border transition-all ${selected ? 'border-[#1F555C]/50 bg-[#1F555C]/10' : 'border-[#F2F4F3]/5 bg-[#F2F4F3]/5 hover:border-[#F2F4F3]/10'}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-1">
-              <h3 className="text-white/80 text-sm font-medium">{model.name}</h3>
-              {selected && <span className="text-xs text-violet-400 bg-violet-500/15 px-2 py-0.5 rounded-full">{t.models.selected}</span>}
+              <h3 className="text-[#F2F4F3]/80 text-sm font-medium">{model.name}</h3>
+              {selected && <span className="text-xs text-[#E6E8E6] bg-[#1F555C]/15 px-2 py-0.5 rounded-full">{t.models.selected}</span>}
             </div>
-            <p className="text-white/30 text-xs leading-relaxed mb-2">{model.description}</p>
+            <p className="text-[#F2F4F3]/30 text-xs leading-relaxed mb-2">{model.description}</p>
             {sizeMb > 0 && (
-              <div className="flex items-center gap-1 text-white/20 text-xs">
+              <div className="flex items-center gap-1 text-[#F2F4F3]/20 text-xs">
                 <HardDrive size={10} />{sizeStr}
               </div>
             )}
           </div>
           <div className="flex flex-col gap-2 shrink-0">
             {model.hf_id === null ? (
-              <span className="text-green-400/70 text-xs flex items-center gap-1">
+              <span className="text-[#E6E8E6]/70 text-xs flex items-center gap-1">
                 <CheckCircle size={12} />{t.models.builtin}
               </span>
             ) : model.downloaded ? (
-              <span className="text-green-400/70 text-xs flex items-center gap-1">
+              <span className="text-[#E6E8E6]/70 text-xs flex items-center gap-1">
                 <CheckCircle size={12} />{t.models.downloaded}
               </span>
             ) : (
               <button onClick={onDownload} disabled={isDownloading}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500/20 transition-all text-xs disabled:opacity-50">
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#F2F4F3]/5 text-[#E6E8E6] hover:bg-[#F2F4F3]/5 transition-all text-xs disabled:opacity-50">
                 {isDownloading ? <span className="animate-spin">↻</span> : <Download size={12} />}
                 {isDownloading ? t.models.downloading : t.models.download}
               </button>
             )}
             {model.downloaded && !selected && model.hf_id !== null && (
               <button onClick={onSelect}
-                className="px-3 py-1.5 rounded-lg bg-violet-500/10 text-violet-400 hover:bg-violet-500/20 transition-all text-xs">
+                className="px-3 py-1.5 rounded-lg bg-[#1F555C]/10 text-[#E6E8E6] hover:bg-[#1F555C]/20 transition-all text-xs">
                 {t.models.select}
               </button>
             )}
@@ -160,8 +160,8 @@ export function ModelsPage({ t }: { t: any }) {
   const Section = ({ icon: Icon, title, children }: any) => (
     <div className="mb-8">
       <div className="flex items-center gap-2 mb-4">
-        <Icon size={16} className="text-violet-400" />
-        <h2 className="text-sm font-medium text-white/60">{title}</h2>
+        <Icon size={16} className="text-[#E6E8E6]" />
+        <h2 className="text-sm font-medium text-[#F2F4F3]/60">{title}</h2>
       </div>
       <div className="space-y-3">{children}</div>
     </div>
@@ -169,9 +169,9 @@ export function ModelsPage({ t }: { t: any }) {
 
   return (
     <div className="p-8 max-w-2xl mx-auto">
-      <h1 className="text-2xl font-semibold text-white mb-2">{t.models.title}</h1>
-      <p className="text-white/30 text-sm mb-8">
-        {t.models.modelsStoredAt}: <code className="text-violet-400/70 text-xs">~/Zap that Dupple/models/</code>
+      <h1 className="text-2xl font-semibold text-[#F2F4F3] mb-2">{t.models.title}</h1>
+      <p className="text-[#F2F4F3]/30 text-sm mb-8">
+        {t.models.modelsStoredAt}: <code className="text-[#E6E8E6]/70 text-xs">~/Zap that Dupple/models/</code>
       </p>
 
       <Section icon={Cpu} title={t.models.imageModels}>

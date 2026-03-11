@@ -148,7 +148,11 @@ function createWindow() {
     minWidth: 1100,
     minHeight: 700,
     titleBarStyle: isWindows ? 'default' : 'hiddenInset',
-    backgroundColor: '#0f0f11',
+    // titleBarOverlay reserves the full top strip as a native drag area (macOS)
+    titleBarOverlay: isWindows ? false : { height: 52 },
+    // traffic lights centered in 52px strip: 52/2 - 7 = 19
+    trafficLightPosition: { x: 15, y: 19 },
+    backgroundColor: '#1C1C1C',
     show: false,
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
     webPreferences: {
