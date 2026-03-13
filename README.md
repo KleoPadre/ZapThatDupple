@@ -27,7 +27,7 @@
 
 ## Screenshots
 <div align="center">
-<img width="756" height="506" alt="SCR-20260311-lpwq" src="https://github.com/user-attachments/assets/e073d5cc-d517-4909-87bf-d1a4aa3a7135" />
+<img width="756" height="506" alt="SCR-20260313-ogvf" src="https://github.com/user-attachments/assets/9705aee1-3989-4132-b361-7b60e7f78021" />
 
 <img width="756" height="506" alt="SCR-20260311-lpou" src="https://github.com/user-attachments/assets/eeedf67b-877d-4b11-81d2-e6727fe014bc" />
 
