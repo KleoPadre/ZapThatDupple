@@ -5,6 +5,10 @@ import { Lang } from '../i18n/translations'
 export interface ScanState {
   status: 'idle' | 'scanning' | 'processing' | 'loading_models' | 'comparing' | 'done' | 'error'
   step?: string
+  substep?: 'image' | 'video' | 'audio' | 'document'
+  substep_total?: number
+  substep_processed?: number
+  type_counts?: { image: number; video: number; audio: number; document: number }
   progress: number
   total_files: number
   processed: number
@@ -14,6 +18,7 @@ export interface ScanState {
   groups_found?: number
   error?: string
   message?: string
+  log_messages?: string[]
 }
 
 export interface Settings {

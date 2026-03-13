@@ -195,111 +195,117 @@ async def run_scan(req: ScanRequest):
         await broadcast({"type": "progress", **scan_state, "total_files": total})
 
         # STEP 2: Load models
-        scan_state["step"] = "loading_models"
-        scan_state["message"] = "Loading AI models..."
+        scan_state.update({"status": "loading_models", "step": "loading_models", "message": "Loading AI models..."})
         await broadcast({"type": "progress", **scan_state})
 
         await asyncio.get_event_loop().run_in_executor(None, model_manager.load_clip, req.image_model)
         await asyncio.get_event_loop().run_in_executor(None, model_manager.load_text_model, req.text_model)
 
-        # STEP 3: Process files
-        scan_state["step"] = "processing"
-        scan_state["message"] = "Processing files..."
+        # STEP 3: Process files — grouped by type
+        type_order = ["image", "video", "audio", "document"]
+        file_groups = {ft: [f for f in files if f["file_type"] == ft] for ft in type_order}
+        type_counts = {ft: len(v) for ft, v in file_groups.items()}
+
         processed = 0
         start_time = time.time()
-
         processed_data = []
 
-        for i, file_info in enumerate(files):
-            await asyncio.sleep(0)  # yield to event loop
+        from processors.image_processor import get_image_phash, get_md5
 
-            path = file_info["path"]
-            ftype = file_info["file_type"]
+        for ftype in type_order:
+            type_files = file_groups[ftype]
+            if not type_files:
+                continue
 
-            # Check if already processed (not full rescan)
-            if not req.full_rescan:
-                model_used_check = req.image_model if ftype in ("image", "video") else req.text_model
-                async with AsyncSessionLocal() as db:
-                    result = await db.execute(
-                        select(ProcessedFile).where(
-                            ProcessedFile.path == path,
-                            ProcessedFile.mtime == file_info["mtime"],
-                            ProcessedFile.embedding_model == model_used_check,
+            substep_processed = 0
+            scan_state.update({
+                "status": "processing",
+                "step": "processing",
+                "substep": ftype,
+                "substep_total": len(type_files),
+                "substep_processed": 0,
+                "type_counts": type_counts,
+                "message": f"Processing {ftype}...",
+            })
+            await broadcast({"type": "progress", **scan_state})
+
+            for file_info in type_files:
+                await asyncio.sleep(0)  # yield to event loop
+
+                path = file_info["path"]
+
+                # Check if already processed (not full rescan)
+                if not req.full_rescan:
+                    model_used_check = req.image_model if ftype in ("image", "video") else req.text_model
+                    async with AsyncSessionLocal() as db:
+                        result = await db.execute(
+                            select(ProcessedFile).where(
+                                ProcessedFile.path == path,
+                                ProcessedFile.mtime == file_info["mtime"],
+                                ProcessedFile.embedding_model == model_used_check,
+                            )
                         )
-                    )
-                    existing = result.scalar_one_or_none()
-                    if existing and existing.embedding:
-                        emb = pickle.loads(existing.embedding)
-                        processed_data.append({
-                            **file_info,
-                            "md5_hash": existing.md5_hash,
-                            "phash": existing.phash,
-                            "embedding": emb,
-                        })
-                        processed += 1
-                        continue
+                        existing = result.scalar_one_or_none()
+                        if existing and existing.embedding:
+                            emb = pickle.loads(existing.embedding)
+                            processed_data.append({
+                                **file_info,
+                                "md5_hash": existing.md5_hash,
+                                "phash": existing.phash,
+                                "embedding": emb,
+                            })
+                            processed += 1
+                            substep_processed += 1
+                            continue
 
-            # Process new file
-            embedding = None
-            phash = None
-            md5 = None
-            error = None
+                # Process new file
+                embedding = None
+                phash = None
+                md5 = None
+                error = None
 
-            try:
-                from processors.image_processor import get_image_phash, get_md5
-
-                if ftype == "image":
-                    md5 = await asyncio.get_event_loop().run_in_executor(None, get_md5, path)
-                    phash = await asyncio.get_event_loop().run_in_executor(None, get_image_phash, path)
-                    embedding = await asyncio.get_event_loop().run_in_executor(
-                        None, model_manager.get_image_embedding, path
-                    )
-
-                elif ftype == "video":
-                    from processors.video_processor import get_video_embedding
-                    md5 = await asyncio.get_event_loop().run_in_executor(None, get_md5, path)
-                    embedding = await asyncio.get_event_loop().run_in_executor(
-                        None, get_video_embedding, path, model_manager, req.video_frames
-                    )
-
-                elif ftype == "audio":
-                    from processors.audio_processor import get_audio_embedding
-                    md5 = await asyncio.get_event_loop().run_in_executor(None, get_md5, path)
-                    embedding = await asyncio.get_event_loop().run_in_executor(
-                        None, get_audio_embedding, path
-                    )
-
-                elif ftype == "document":
-                    from processors.document_processor import extract_text
-                    md5 = await asyncio.get_event_loop().run_in_executor(None, get_md5, path)
-                    text = await asyncio.get_event_loop().run_in_executor(None, extract_text, path)
-                    if text and len(text.strip()) > 20:
+                try:
+                    if ftype == "image":
+                        md5 = await asyncio.get_event_loop().run_in_executor(None, get_md5, path)
+                        phash = await asyncio.get_event_loop().run_in_executor(None, get_image_phash, path)
                         embedding = await asyncio.get_event_loop().run_in_executor(
-                            None, model_manager.get_text_embedding, text
+                            None, model_manager.get_image_embedding, path
                         )
 
-            except Exception as e:
-                error = str(e)
+                    elif ftype == "video":
+                        from processors.video_processor import get_video_embedding
+                        md5 = await asyncio.get_event_loop().run_in_executor(None, get_md5, path)
+                        embedding = await asyncio.get_event_loop().run_in_executor(
+                            None, get_video_embedding, path, model_manager, req.video_frames
+                        )
 
-            # Save to DB (upsert — update if path already exists)
-            emb_blob = pickle.dumps(embedding) if embedding is not None else None
-            model_used = req.image_model if ftype in ("image", "video") else req.text_model
+                    elif ftype == "audio":
+                        from processors.audio_processor import get_audio_embedding
+                        md5 = await asyncio.get_event_loop().run_in_executor(None, get_md5, path)
+                        embedding = await asyncio.get_event_loop().run_in_executor(
+                            None, get_audio_embedding, path
+                        )
 
-            async with AsyncSessionLocal() as db:
-                from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-                stmt = sqlite_insert(ProcessedFile).values(
-                    path=path,
-                    file_type=ftype,
-                    size=file_info["size"],
-                    mtime=file_info["mtime"],
-                    md5_hash=md5,
-                    phash=phash,
-                    embedding_model=model_used,
-                    embedding=emb_blob,
-                    error=error,
-                ).on_conflict_do_update(
-                    index_elements=["path"],
-                    set_=dict(
+                    elif ftype == "document":
+                        from processors.document_processor import extract_text
+                        md5 = await asyncio.get_event_loop().run_in_executor(None, get_md5, path)
+                        text = await asyncio.get_event_loop().run_in_executor(None, extract_text, path)
+                        if text and len(text.strip()) > 20:
+                            embedding = await asyncio.get_event_loop().run_in_executor(
+                                None, model_manager.get_text_embedding, text
+                            )
+
+                except Exception as e:
+                    error = str(e)
+
+                # Save to DB (upsert)
+                emb_blob = pickle.dumps(embedding) if embedding is not None else None
+                model_used = req.image_model if ftype in ("image", "video") else req.text_model
+
+                async with AsyncSessionLocal() as db:
+                    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+                    stmt = sqlite_insert(ProcessedFile).values(
+                        path=path,
                         file_type=ftype,
                         size=file_info["size"],
                         mtime=file_info["mtime"],
@@ -308,39 +314,50 @@ async def run_scan(req: ScanRequest):
                         embedding_model=model_used,
                         embedding=emb_blob,
                         error=error,
+                    ).on_conflict_do_update(
+                        index_elements=["path"],
+                        set_=dict(
+                            file_type=ftype,
+                            size=file_info["size"],
+                            mtime=file_info["mtime"],
+                            md5_hash=md5,
+                            phash=phash,
+                            embedding_model=model_used,
+                            embedding=emb_blob,
+                            error=error,
+                        )
                     )
-                )
-                await db.execute(stmt)
-                await db.commit()
+                    await db.execute(stmt)
+                    await db.commit()
 
-            processed_data.append({
-                **file_info,
-                "md5_hash": md5,
-                "phash": phash,
-                "embedding": embedding,
-            })
+                processed_data.append({
+                    **file_info,
+                    "md5_hash": md5,
+                    "phash": phash,
+                    "embedding": embedding,
+                })
 
-            processed += 1
-            elapsed = time.time() - start_time
-            rate = processed / elapsed if elapsed > 0 else 1
-            remaining = int((total - processed) / rate) if rate > 0 else 0
+                processed += 1
+                substep_processed += 1
+                elapsed = time.time() - start_time
+                rate = processed / elapsed if elapsed > 0 else 1
+                remaining = int((total - processed) / rate) if rate > 0 else 0
 
-            scan_state.update({
-                "processed": processed,
-                "total_files": total,
-                "progress": int(processed / total * 100) if total > 0 else 0,
-                "current_file": os.path.basename(path),
-                "elapsed": int(elapsed),
-                "remaining": remaining,
-            })
+                scan_state.update({
+                    "processed": processed,
+                    "total_files": total,
+                    "progress": int(processed / total * 100) if total > 0 else 0,
+                    "substep_processed": substep_processed,
+                    "current_file": os.path.basename(path),
+                    "elapsed": int(elapsed),
+                    "remaining": remaining,
+                })
 
-            if processed % 5 == 0 or processed == total:
-                await broadcast({"type": "progress", **scan_state})
+                if substep_processed % 5 == 0 or substep_processed == len(type_files):
+                    await broadcast({"type": "progress", **scan_state})
 
         # STEP 4: Compare
-        scan_state["step"] = "comparing"
-        scan_state["message"] = "Comparing files..."
-        scan_state["progress"] = 0
+        scan_state.update({"status": "comparing", "step": "comparing", "message": "Comparing files...", "progress": 0})
         await broadcast({"type": "progress", **scan_state})
 
         groups = await asyncio.get_event_loop().run_in_executor(

@@ -11,14 +11,19 @@ import { Sidebar } from './components/Sidebar'
 export default function App() {
   const { activeTab, setScanState, lang } = useStore()
   const wsRef = useRef<WebSocket | null>(null)
+  const logRef = useRef<string[]>([])
   const t = translations[lang]
 
   useEffect(() => {
     const connect = () => {
       wsRef.current = createWebSocket((data) => {
         if (data.type === 'progress' || data.type === 'state') {
+          if (data.message) {
+            logRef.current = [...logRef.current.slice(-49), data.message]
+          }
+          const currentState = useStore.getState().scanState
           setScanState({
-            status: data.status || data.step,
+            status: (data.step || data.status) as any,
             progress: data.progress ?? 0,
             total_files: data.total_files ?? 0,
             processed: data.processed ?? 0,
@@ -26,6 +31,11 @@ export default function App() {
             elapsed: data.elapsed,
             remaining: data.remaining,
             message: data.message,
+            substep: data.substep,
+            substep_total: data.substep_total,
+            substep_processed: data.substep_processed,
+            type_counts: data.type_counts ?? currentState.type_counts,
+            log_messages: logRef.current,
           })
         }
         if (data.type === 'scan_done') {
