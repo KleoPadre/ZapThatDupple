@@ -260,7 +260,21 @@ export function ScanPage({ t }: { t: any }) {
     },
     {
       id: 'comparing',
-      def: { id: 'comparing', icon: '🔍', label: t.scan.stepComparing },
+      def: {
+        id: 'comparing',
+        icon: '🔍',
+        label: t.scan.stepComparing,
+        progress: (() => {
+          const s = getStatus('comparing')
+          if (s === 'running' && scanState.substep_total && scanState.substep_total > 0)
+            return Math.round(((scanState.substep_processed ?? 0) / scanState.substep_total) * 100)
+          if (s === 'done') return 100
+          return undefined
+        })(),
+        processed: getStatus('comparing') === 'running' ? (scanState.substep_processed ?? 0) : undefined,
+        total: getStatus('comparing') === 'running' ? (scanState.substep_total ?? 0) : undefined,
+        remaining: getStatus('comparing') === 'running' ? scanState.remaining : undefined,
+      },
     },
   ]
 

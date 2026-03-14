@@ -9,6 +9,7 @@ def find_duplicates(
     text_threshold: float = 0.90,
     audio_threshold: float = 0.97,
     video_threshold: float = 0.90,
+    progress_callback=None,  # callable(processed: int, total: int)
 ) -> List[Dict]:
     """
     Returns list of duplicate groups:
@@ -23,6 +24,8 @@ def find_duplicates(
         by_type.setdefault(t, []).append(f)
 
     groups = []
+    total_files = len(files)
+    compared = 0
 
     for ftype, items in by_type.items():
         threshold = {
@@ -87,6 +90,9 @@ def find_duplicates(
         ]
 
         if len(embed_items) < 2:
+            compared += len(items)
+            if progress_callback:
+                progress_callback(compared, total_files)
             continue
 
         embeddings = np.array([i["embedding"] for i in embed_items])
@@ -120,5 +126,9 @@ def find_duplicates(
                     "file_type": ftype,
                     "files": group_paths,
                 })
+
+        compared += len(items)
+        if progress_callback:
+            progress_callback(compared, total_files)
 
     return groups

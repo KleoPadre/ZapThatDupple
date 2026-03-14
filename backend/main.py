@@ -218,6 +218,7 @@ async def run_scan(req: ScanRequest):
                 continue
 
             substep_processed = 0
+            substep_start_time = time.time()
             scan_state.update({
                 "status": "processing",
                 "step": "processing",
@@ -226,6 +227,7 @@ async def run_scan(req: ScanRequest):
                 "substep_processed": 0,
                 "type_counts": type_counts,
                 "message": f"Processing {ftype}...",
+                "remaining": None,
             })
             await broadcast({"type": "progress", **scan_state})
 
@@ -246,8 +248,8 @@ async def run_scan(req: ScanRequest):
                             )
                         )
                         existing = result.scalar_one_or_none()
-                        if existing and existing.embedding:
-                            emb = pickle.loads(existing.embedding)
+                        if existing is not None:
+                            emb = pickle.loads(existing.embedding) if existing.embedding else None
                             processed_data.append({
                                 **file_info,
                                 "md5_hash": existing.md5_hash,
@@ -339,9 +341,9 @@ async def run_scan(req: ScanRequest):
 
                 processed += 1
                 substep_processed += 1
-                elapsed = time.time() - start_time
-                rate = processed / elapsed if elapsed > 0 else 1
-                remaining = int((total - processed) / rate) if rate > 0 else 0
+                substep_elapsed = time.time() - substep_start_time
+                substep_rate = substep_processed / substep_elapsed if substep_elapsed > 0 else 1
+                substep_remaining = int((len(type_files) - substep_processed) / substep_rate) if substep_rate > 0 else 0
 
                 scan_state.update({
                     "processed": processed,
@@ -349,25 +351,50 @@ async def run_scan(req: ScanRequest):
                     "progress": int(processed / total * 100) if total > 0 else 0,
                     "substep_processed": substep_processed,
                     "current_file": os.path.basename(path),
-                    "elapsed": int(elapsed),
-                    "remaining": remaining,
+                    "remaining": substep_remaining,
                 })
 
                 if substep_processed % 5 == 0 or substep_processed == len(type_files):
                     await broadcast({"type": "progress", **scan_state})
 
         # STEP 4: Compare
-        scan_state.update({"status": "comparing", "step": "comparing", "message": "Comparing files...", "progress": 0})
+        scan_state.update({
+            "status": "comparing",
+            "step": "comparing",
+            "message": "Comparing files...",
+            "progress": 0,
+            "substep_processed": 0,
+            "substep_total": total,
+        })
         await broadcast({"type": "progress", **scan_state})
+
+        compare_start = time.time()
+        loop = asyncio.get_event_loop()
+
+        def compare_progress(compared: int, total_cmp: int):
+            elapsed_cmp = time.time() - compare_start
+            rate_cmp = compared / elapsed_cmp if elapsed_cmp > 0 else 1
+            rem_cmp = int((total_cmp - compared) / rate_cmp) if rate_cmp > 0 else 0
+            scan_state.update({
+                "substep_processed": compared,
+                "substep_total": total_cmp,
+                "progress": int(compared / total_cmp * 100) if total_cmp > 0 else 0,
+                "remaining": rem_cmp,
+            })
+            loop.call_soon_threadsafe(
+                lambda: asyncio.ensure_future(broadcast({"type": "progress", **scan_state}))
+            )
 
         groups = await asyncio.get_event_loop().run_in_executor(
             None,
-            find_duplicates,
-            processed_data,
-            req.image_threshold,
-            req.text_threshold,
-            req.audio_threshold,
-            req.video_threshold,
+            lambda: find_duplicates(
+                processed_data,
+                req.image_threshold,
+                req.text_threshold,
+                req.audio_threshold,
+                req.video_threshold,
+                progress_callback=compare_progress,
+            ),
         )
 
         # Save groups to DB
