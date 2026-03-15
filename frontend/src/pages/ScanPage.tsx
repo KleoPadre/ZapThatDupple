@@ -385,9 +385,14 @@ export function ScanPage({ t }: { t: any }) {
         </section>
 
         <section className="mb-8">
-          <label className="flex items-center gap-3 cursor-pointer">
+          <label 
+            className="flex items-center gap-3 cursor-pointer"
+            onClick={(e) => {
+              e.preventDefault();
+              setFullRescan((prev) => !prev);
+            }}
+          >
             <div
-              onClick={() => setFullRescan(!fullRescan)}
               className={`w-11 h-6 rounded-full transition-colors relative ${fullRescan ? 'bg-[#1F555C]' : 'bg-[#F2F4F3]/10'}`}
             >
               <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${fullRescan ? 'translate-x-6' : 'translate-x-1'}`} />

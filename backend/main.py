@@ -243,12 +243,13 @@ async def run_scan(req: ScanRequest):
                         result = await db.execute(
                             select(ProcessedFile).where(
                                 ProcessedFile.path == path,
-                                ProcessedFile.mtime == file_info["mtime"],
                                 ProcessedFile.embedding_model == model_used_check,
                             )
                         )
                         existing = result.scalar_one_or_none()
-                        if existing is not None:
+                        # Погрешность ±2 сек: SMB/AFP/FAT округляют mtime (до 2 сек),
+                        # NFS — до 1 сек. Точное сравнение ломало кеш на сетевых дисках.
+                        if existing is not None and abs(existing.mtime - file_info["mtime"]) <= 2.0:
                             emb = pickle.loads(existing.embedding) if existing.embedding else None
                             processed_data.append({
                                 **file_info,
@@ -364,7 +365,7 @@ async def run_scan(req: ScanRequest):
             "message": "Comparing files...",
             "progress": 0,
             "substep_processed": 0,
-            "substep_total": total,
+            "substep_total": 0,
         })
         await broadcast({"type": "progress", **scan_state})
 
@@ -381,8 +382,10 @@ async def run_scan(req: ScanRequest):
                 "progress": int(compared / total_cmp * 100) if total_cmp > 0 else 0,
                 "remaining": rem_cmp,
             })
-            loop.call_soon_threadsafe(
-                lambda: asyncio.ensure_future(broadcast({"type": "progress", **scan_state}))
+            # run_coroutine_threadsafe — правильный способ вызова корутины из другого потока
+            asyncio.run_coroutine_threadsafe(
+                broadcast({"type": "progress", **scan_state}),
+                loop
             )
 
         groups = await asyncio.get_event_loop().run_in_executor(
