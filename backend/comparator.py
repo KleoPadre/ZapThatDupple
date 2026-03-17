@@ -103,15 +103,15 @@ def find_duplicates(
                     if phash_items[i]["path"] in phash_used:
                         pairs_done_in_phash += (pn - 1 - i)
                         continue
-                    group_paths = [phash_items[i]["path"]]
+                    group_paths = [(phash_items[i]["path"], 1.0)]
                     for j in range(i + 1, pn):
                         if phash_items[j]["path"] in phash_used:
                             pairs_done_in_phash += 1
                             continue
                         from processors.image_processor import phash_distance
                         sim = phash_distance(phash_items[i]["phash"], phash_items[j]["phash"])
-                        if sim >= 0.85:
-                            group_paths.append(phash_items[j]["path"])
+                        if sim >= threshold:
+                            group_paths.append((phash_items[j]["path"], sim))
                             phash_used.add(phash_items[j]["path"])
                         
                         pairs_done_in_phash += 1
@@ -123,14 +123,15 @@ def find_duplicates(
                                 progress_callback(current_progress, total_pairs)
                                 
                     if len(group_paths) > 1:
+                        max_sim = max(s for _, s in group_paths)
                         groups.append({
                             "group_id": str(uuid.uuid4()),
                             "match_type": "near",
-                            "similarity": 0.90,
+                            "similarity": max_sim,
                             "file_type": ftype,
-                            "files": [{"path": p, "similarity": 0.90} for p in group_paths],
+                            "files": [{"path": p, "similarity": s} for p, s in group_paths],
                         })
-                        for p in group_paths:
+                        for p, _ in group_paths:
                             used_paths.add(p)
                         phash_used.add(phash_items[i]["path"])
 

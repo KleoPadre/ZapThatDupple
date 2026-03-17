@@ -251,15 +251,29 @@ async def run_scan(req: ScanRequest):
                         # NFS — до 1 сек. Точное сравнение ломало кеш на сетевых дисках.
                         if existing is not None and abs(existing.mtime - file_info["mtime"]) <= 2.0:
                             emb = pickle.loads(existing.embedding) if existing.embedding else None
-                            processed_data.append({
-                                **file_info,
-                                "md5_hash": existing.md5_hash,
-                                "phash": existing.phash,
-                                "embedding": emb,
-                            })
-                            processed += 1
-                            substep_processed += 1
-                            continue
+                            # Не использовать кэш в трёх случаях:
+                            # 1. emb=None, но модель загружена (сохранился None без модели)
+                            # 2. emb содержит NaN (баг MPS float16 — silent NaN из ViT-L/14)
+                            # В этих случаях пересчитываем эмбеддинг.
+                            model_available = (
+                                (ftype in ("image", "video") and model_manager._clip_model is not None)
+                                or (ftype in ("audio", "document") and model_manager._text_model is not None)
+                            )
+                            emb_is_bad = (
+                                emb is None
+                                or (isinstance(emb, np.ndarray) and (np.isnan(emb).any() or np.isinf(emb).any()))
+                            )
+                            if not emb_is_bad or not model_available:
+                                processed_data.append({
+                                    **file_info,
+                                    "md5_hash": existing.md5_hash,
+                                    "phash": existing.phash,
+                                    "embedding": emb,
+                                })
+                                processed += 1
+                                substep_processed += 1
+                                continue
+                            # emb плохой и модель загружена — пересчитываем
 
                 # Process new file
                 embedding = None

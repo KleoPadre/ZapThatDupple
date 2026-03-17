@@ -303,17 +303,34 @@ class ModelManager:
 
         print(f"Loading CLIP {model_id} on {self.device}...")
         torch.hub.set_dir(str(TORCH_CACHE))
+
+        # CRITICAL: force_quick_gelu=True — OpenAI CLIP models were trained with
+        # QuickGELU activation. Newer open_clip versions default to GELU (quick_gelu=False),
+        # which produces wrong embeddings for openai-pretrained models. Without this flag
+        # the model silently produces a distorted embedding space where cosine similarity
+        # between semantically similar images falls far below expected thresholds.
         model, _, preprocess = open_clip.create_model_and_transforms(
             meta["open_clip_name"],
             pretrained=meta["open_clip_pretrained"],
             cache_dir=str(TORCH_CACHE / "checkpoints"),
+            force_quick_gelu=True,
         )
+
+        # CRITICAL: MPS (Apple Silicon GPU) has known float16 precision bugs for large
+        # ViT models (e.g. ViT-L/14). The model loads and runs without errors, but
+        # encode_image() silently returns NaN tensors. Embeddings appear non-None,
+        # but all cosine similarities evaluate to NaN, which is always < threshold,
+        # so zero duplicate groups are found despite the model "working".
+        # Forcing float32 fixes this completely.
+        if self.device.type in ("mps", "cpu"):
+            model = model.float()  # force fp32 — MPS fp16 is unreliable for large ViTs
+
         model = model.to(self.device)
         model.eval()
         self._clip_model = model
         self._clip_preprocess = preprocess
         self._clip_model_id = model_id
-        print(f"CLIP {model_id} loaded on {self.device}")
+        print(f"CLIP {model_id} loaded on {self.device} (fp32)")
 
     def load_text_model(self, model_id: str = "all-MiniLM-L6-v2"):
         if self._text_model_id == model_id and self._text_model is not None:
@@ -343,7 +360,13 @@ class ModelManager:
             tensor = self._clip_preprocess(image).unsqueeze(0).to(self.device)
             features = self._clip_model.encode_image(tensor)
             features = features / features.norm(dim=-1, keepdim=True)
-            return features.cpu().float().numpy()[0]
+            result = features.cpu().float().numpy()[0]
+            # Guard against MPS/CUDA silent NaN — NaN embeddings look valid (non-None)
+            # but sk_cosine returns NaN similarities, so nothing is ever found.
+            if np.isnan(result).any() or np.isinf(result).any():
+                print(f"[warn] NaN/Inf embedding for {image_path} — returning None")
+                return None
+            return result
         except Exception as e:
             print(f"Image embedding error {image_path}: {e}")
             return None
