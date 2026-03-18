@@ -2,7 +2,7 @@ import os
 import sys
 import numpy as np
 from pathlib import Path
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict
 import asyncio
 import torch
 
@@ -273,6 +273,10 @@ class ModelManager:
             })
 
     def _download_sync(self, model_id: str, meta: dict):
+        # При скачивании сбрасываем offline-режим — иначе HF не сможет скачать модель
+        os.environ.pop("TRANSFORMERS_OFFLINE", None)
+        os.environ.pop("HF_DATASETS_OFFLINE", None)
+
         if meta["type"] == "clip":
             import open_clip
             print(f"Downloading {meta['open_clip_name']} via open_clip...")
@@ -309,6 +313,12 @@ class ModelManager:
         # which produces wrong embeddings for openai-pretrained models. Without this flag
         # the model silently produces a distorted embedding space where cosine similarity
         # between semantically similar images falls far below expected thresholds.
+        #
+        # Также отключаем сетевые запросы HuggingFace — open_clip при загрузке может
+        # обращаться к сети для проверки обновлений, что зависает на медленном соединении.
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+        os.environ["HF_DATASETS_OFFLINE"] = "1"
+
         model, _, preprocess = open_clip.create_model_and_transforms(
             meta["open_clip_name"],
             pretrained=meta["open_clip_pretrained"],
@@ -342,6 +352,16 @@ class ModelManager:
             raise ValueError(f"Unknown text model: {model_id}")
 
         print(f"Loading text model {model_id}...")
+
+        # CRITICAL: без TRANSFORMERS_OFFLINE sentence-transformers при каждой загрузке
+        # делает HTTP-запрос к HuggingFace для проверки обновлений. На медленном или
+        # нестабильном соединении (SMB-диски, VPN, слабый WiFi) это зависает на десятки
+        # минут — весь скан стоит на стадии loading_models, пользователь думает что
+        # программа зависла и останавливает скан. Результат: 0 найденных групп.
+        # Решение: offline=True загружает только из локального кэша.
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+        os.environ["HF_DATASETS_OFFLINE"] = "1"
+
         self._text_model = SentenceTransformer(
             meta["hf_id"],
             device=str(self.device),
@@ -390,6 +410,58 @@ class ModelManager:
         self._text_model_id = None
         if torch.backends.mps.is_available():
             torch.mps.empty_cache()
+
+    def check_for_updates(self) -> Dict[str, bool]:
+        """
+        Проверяет наличие обновлений для скачанных моделей.
+        Возвращает {model_id: True} если для модели есть обновление.
+
+        Проверяет только HuggingFace модели (text). Для CLIP (torch hub)
+        проверка не производится — у них нет стандартного механизма версий.
+
+        Использует лёгкий запрос к HF API (только метаданные, не веса).
+        Таймаут 5 сек — не блокирует запуск.
+        """
+        updates: Dict[str, bool] = {}
+        all_models = {**AVAILABLE_MODELS["text"]}  # только HF-модели
+
+        for model_id, meta in all_models.items():
+            hf_id = meta.get("hf_id")
+            if not hf_id:
+                continue
+            if not self.is_model_downloaded(model_id):
+                continue  # не скачана — обновление не нужно
+
+            try:
+                # Читаем локальный SHA из кэша HF Hub
+                slug = "models--" + hf_id.replace("/", "--")
+                refs_file = HF_CACHE / slug / "refs" / "main"
+                if not refs_file.exists():
+                    continue
+                local_sha = refs_file.read_text().strip()
+
+                # Запрашиваем актуальный SHA с HF API (только метаданные, ~1 КБ)
+                # Временно снимаем offline-режим для этого запроса
+                old_offline = os.environ.pop("TRANSFORMERS_OFFLINE", None)
+                try:
+                    from huggingface_hub import model_info
+                    info = model_info(hf_id, timeout=5)
+                    remote_sha = info.sha
+                finally:
+                    if old_offline is not None:
+                        os.environ["TRANSFORMERS_OFFLINE"] = old_offline
+
+                if remote_sha and local_sha and remote_sha != local_sha:
+                    updates[model_id] = True
+                    print(f"[update] {model_id}: {local_sha[:8]} → {remote_sha[:8]}")
+                else:
+                    updates[model_id] = False
+
+            except Exception as e:
+                # Нет сети или другая ошибка — тихо игнорируем
+                print(f"[update check] {model_id}: {e}")
+
+        return updates
 
 
 model_manager = ModelManager()

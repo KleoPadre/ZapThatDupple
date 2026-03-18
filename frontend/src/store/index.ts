@@ -49,6 +49,10 @@ interface AppStore {
 
   activeTab: string
   setActiveTab: (tab: string) => void
+
+  // Обновления моделей: {model_id: true} если есть обновление
+  modelUpdates: Record<string, boolean>
+  setModelUpdates: (updates: Record<string, boolean>) => void
 }
 
 export const useStore = create<AppStore>()(
@@ -94,6 +98,9 @@ export const useStore = create<AppStore>()(
 
       activeTab: 'scan',
       setActiveTab: (tab) => set({ activeTab: tab }),
+
+      modelUpdates: {},
+      setModelUpdates: (updates) => set({ modelUpdates: updates }),
     }),
     {
       name: 'filesdedupe-store',

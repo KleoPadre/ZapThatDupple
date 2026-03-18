@@ -37,7 +37,10 @@ async def lifespan(app: FastAPI):
     # Migrate models from system cache to app dir (one-time, for old installs)
     from ai.model_manager import _migrate_system_cache
     _migrate_system_cache()
+    # Запускаем фоновую проверку обновлений моделей (при старте + раз в час)
+    update_task = asyncio.create_task(_model_update_loop())
     yield
+    update_task.cancel()
     model_manager.unload_all()
 
 
@@ -55,6 +58,36 @@ active_ws: List[WebSocket] = []
 # Current scan task
 current_task: Optional[asyncio.Task] = None
 scan_state: Dict[str, Any] = {"status": "idle"}
+
+# Кэш результатов проверки обновлений моделей: {model_id: bool}
+model_updates_cache: Dict[str, bool] = {}
+
+
+async def _run_model_update_check():
+    """Проверяет обновления моделей в отдельном потоке, не блокируя event loop."""
+    loop = asyncio.get_event_loop()
+    updates = await loop.run_in_executor(None, model_manager.check_for_updates)
+    global model_updates_cache
+    model_updates_cache = updates
+    has_any = any(updates.values())
+    if has_any:
+        updated_ids = [mid for mid, has in updates.items() if has]
+        print(f"[updates] Найдены обновления: {updated_ids}")
+        await broadcast({"type": "model_updates_available", "updates": updates})
+    return updates
+
+
+async def _model_update_loop():
+    """Фоновая задача: проверка при старте и раз в час."""
+    # Небольшая задержка после старта — дать серверу подняться
+    await asyncio.sleep(10)
+    while True:
+        try:
+            await _run_model_update_check()
+        except Exception as e:
+            print(f"[update loop] error: {e}")
+        # Проверяем раз в час
+        await asyncio.sleep(3600)
 
 
 async def broadcast(message: dict):
@@ -81,8 +114,16 @@ async def get_models(lang: str = "ru"):
             entry = {k: v for k, v in meta.items() if not k.startswith("description")}
             entry["description"] = description
             entry["downloaded"] = model_manager.is_model_downloaded(model_id)
+            entry["update_available"] = model_updates_cache.get(model_id, False)
             result[category].append(entry)
     return result
+
+
+@app.post("/api/models/check-updates")
+async def check_model_updates():
+    """Запускает немедленную проверку обновлений (вне расписания)."""
+    asyncio.create_task(_run_model_update_check())
+    return {"status": "checking"}
 
 
 class DownloadModelRequest(BaseModel):

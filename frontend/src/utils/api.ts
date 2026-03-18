@@ -9,6 +9,7 @@ export const previewApi = axios.create({ baseURL: API_BASE, timeout: 30000 })
 
 export const getModels = (lang = 'ru') => api.get(`/api/models?lang=${lang}`).then(r => r.data)
 export const downloadModel = (model_id: string) => api.post('/api/models/download', { model_id })
+export const checkModelUpdates = () => api.post('/api/models/check-updates')
 export const getSettings = () => api.get('/api/settings').then(r => r.data)
 export const saveSettings = (settings: object) => api.post('/api/settings', settings)
 export const startScan = (params: object) => api.post('/api/scan/start', params)

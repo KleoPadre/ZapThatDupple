@@ -44,6 +44,9 @@ export default function App() {
         if (data.type === 'scan_error') {
           setScanState({ status: 'error', error: data.error })
         }
+        if (data.type === 'model_updates_available') {
+          useStore.getState().setModelUpdates(data.updates ?? {})
+        }
       })
       wsRef.current.onclose = () => { setTimeout(connect, 3000) }
     }

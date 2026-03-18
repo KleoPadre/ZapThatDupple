@@ -12,7 +12,9 @@ const TABS = [
 const noDrag: React.CSSProperties = { WebkitAppRegion: 'no-drag' } as any
 
 export function Sidebar({ t }: { t: any }) {
-  const { activeTab, setActiveTab, lang, setLang, scanState } = useStore()
+  const { activeTab, setActiveTab, lang, setLang, scanState, modelUpdates } = useStore()
+
+  const hasModelUpdates = Object.values(modelUpdates).some(Boolean)
 
   return (
     <aside className="w-[86px] bg-[#1C1C1C] border-r border-[#F2F4F3]/5 flex flex-col items-center gap-2 shrink-0">
@@ -30,7 +32,9 @@ export function Sidebar({ t }: { t: any }) {
       {/* Nav items */}
       {TABS.map(({ id, icon: Icon, labelKey }) => {
         const isActive = activeTab === id
-        const hasBadge = id === 'results' && scanState.status === 'done' && (scanState.groups_found ?? 0) > 0
+        const hasBadge =
+          (id === 'results' && scanState.status === 'done' && (scanState.groups_found ?? 0) > 0) ||
+          (id === 'models' && hasModelUpdates)
 
         return (
           <button
@@ -46,7 +50,9 @@ export function Sidebar({ t }: { t: any }) {
           >
             <Icon size={24} />
             {hasBadge && (
-              <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-[#E6E8E6] rounded-full" />
+              <span className={`absolute top-2 right-2 w-2.5 h-2.5 rounded-full ${
+                id === 'models' ? 'bg-[#E8A838]' : 'bg-[#E6E8E6]'
+              }`} />
             )}
           </button>
         )
