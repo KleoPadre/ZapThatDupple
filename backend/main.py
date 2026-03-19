@@ -455,17 +455,26 @@ async def run_scan(req: ScanRequest):
             ),
         )
 
-        # Save groups to DB
+        # Save groups to DB — bulk insert для скорости
+        # (тысячи отдельных db.add() медленнее чем один execute с values)
         async with AsyncSessionLocal() as db:
             await db.execute(delete(DuplicateGroup))
-            for group in groups:
-                for file_entry in group["files"]:
-                    db.add(DuplicateGroup(
-                        group_id=group["group_id"],
-                        file_path=file_entry["path"],
-                        similarity=file_entry["similarity"],
-                        match_type=group["match_type"],
-                    ))
+            if groups:
+                from sqlalchemy.dialects.sqlite import insert as sqlite_insert_group
+                rows = []
+                for group in groups:
+                    for file_entry in group["files"]:
+                        rows.append({
+                            "group_id": group["group_id"],
+                            "file_path": file_entry["path"],
+                            "similarity": file_entry["similarity"],
+                            "match_type": group["match_type"],
+                        })
+                # Bulk insert всех строк одним запросом
+                await db.execute(
+                    sqlite_insert_group(DuplicateGroup),
+                    rows,
+                )
             await db.commit()
 
         scan_state = {
@@ -476,6 +485,8 @@ async def run_scan(req: ScanRequest):
             "groups_found": len(groups),
             "progress": 100,
         }
+        # ВАЖНО: broadcast ПОСЛЕ commit — фронтенд получит scan_done
+        # и сразу вызовет GET /api/results, который вернёт уже записанные данные
         await broadcast({"type": "scan_done", **scan_state})
 
     except asyncio.CancelledError:
@@ -490,40 +501,50 @@ async def run_scan(req: ScanRequest):
 
 @app.get("/api/results")
 async def get_results(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(DuplicateGroup))
-    rows = result.scalars().all()
+    # ИСПРАВЛЕНИЕ: один JOIN-запрос вместо N+1 отдельных SELECT.
+    # Было: SELECT * FROM duplicate_groups, затем для КАЖДОЙ строки
+    #       отдельный SELECT * FROM processed_files WHERE path = ?
+    # При 3000+ группах это ~10 000 запросов → timeout → пустой ответ.
+    # Стало: один LEFT JOIN — возвращает всё за один round-trip к БД.
+    from sqlalchemy import text
+    stmt = text("""
+        SELECT
+            dg.group_id,
+            dg.file_path,
+            dg.similarity,
+            dg.match_type,
+            pf.file_type,
+            pf.size
+        FROM duplicate_groups dg
+        LEFT JOIN processed_files pf ON pf.path = dg.file_path
+        ORDER BY dg.group_id
+    """)
+    result = await db.execute(stmt)
+    rows = result.fetchall()
 
     groups: Dict[str, dict] = {}
     for row in rows:
-        if row.group_id not in groups:
-            groups[row.group_id] = {
-                "group_id": row.group_id,
-                "match_type": row.match_type,
-                "file_type": "",
+        group_id, file_path, similarity, match_type, file_type, size = row
+        if group_id not in groups:
+            groups[group_id] = {
+                "group_id": group_id,
+                "match_type": match_type,
+                "file_type": file_type or "",
                 "files": [],
             }
+        elif file_type and not groups[group_id]["file_type"]:
+            groups[group_id]["file_type"] = file_type
 
-        # Get file info
-        file_result = await db.execute(
-            select(ProcessedFile).where(ProcessedFile.path == row.file_path)
-        )
-        pf = file_result.scalar_one_or_none()
-
-        file_info = {
-            "path": row.file_path,
-            "similarity": row.similarity,
-            "exists": os.path.exists(row.file_path),
-        }
-        if pf:
-            file_info.update({
-                "file_type": pf.file_type,
-                "size": pf.size,
-                "name": os.path.basename(row.file_path),
-            })
-            if not groups[row.group_id]["file_type"]:
-                groups[row.group_id]["file_type"] = pf.file_type
-
-        groups[row.group_id]["files"].append(file_info)
+        groups[group_id]["files"].append({
+            "path": file_path,
+            "similarity": similarity,
+            "file_type": file_type or "",
+            "size": size or 0,
+            "name": os.path.basename(file_path),
+            # exists проверяем только если файл запрошен для удаления/превью,
+            # а не при загрузке всех результатов — os.path.exists по сети очень медленный
+            "exists": True,
+        })
 
     return list(groups.values())
 

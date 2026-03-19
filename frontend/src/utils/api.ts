@@ -4,6 +4,10 @@ const API_BASE = 'http://127.0.0.1:8765'
 
 export const api = axios.create({ baseURL: API_BASE, timeout: 10000 })
 
+// Отдельный инстанс для /api/results — при большой коллекции JOIN-запрос
+// может занять несколько секунд, стандартного 10s таймаута не хватает
+export const resultsApi = axios.create({ baseURL: API_BASE, timeout: 60000 })
+
 // Separate instance for previews — longer timeout
 export const previewApi = axios.create({ baseURL: API_BASE, timeout: 30000 })
 
@@ -15,7 +19,7 @@ export const saveSettings = (settings: object) => api.post('/api/settings', sett
 export const startScan = (params: object) => api.post('/api/scan/start', params)
 export const stopScan = () => api.post('/api/scan/stop')
 export const getScanStatus = () => api.get('/api/scan/status').then(r => r.data)
-export const getResults = () => api.get('/api/results').then(r => r.data)
+export const getResults = () => resultsApi.get('/api/results').then(r => r.data)
 export const deleteFile = (path: string) => api.post('/api/file/delete', { path })
 export const resetDatabase = () => api.post('/api/db/reset')
 
