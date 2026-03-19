@@ -23,6 +23,16 @@ export const getResults = () => resultsApi.get('/api/results').then(r => r.data)
 export const deleteFile = (path: string) => api.post('/api/file/delete', { path })
 export const resetDatabase = () => api.post('/api/db/reset')
 
+// EXIF with cache
+const exifCache = new Map<string, any>()
+
+export async function getExif(path: string): Promise<any> {
+  if (exifCache.has(path)) return exifCache.get(path)
+  const result = await api.get('/api/file/exif', { params: { path } })
+  exifCache.set(path, result.data)
+  return result.data
+}
+
 // Preview with cache — avoid re-fetching same file
 const previewCache = new Map<string, string>()
 

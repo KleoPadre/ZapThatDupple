@@ -661,6 +661,113 @@ async def get_preview(path: str):
         raise HTTPException(500, str(e))
 
 
+@app.get("/api/file/exif")
+async def get_file_exif(path: str):
+    """Return EXIF/metadata for image or video file."""
+    if not os.path.exists(path):
+        raise HTTPException(404, "File not found")
+
+    ext = os.path.splitext(path)[1].lower()
+    VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".wmv", ".flv", ".webm", ".m4v", ".3gp", ".ts", ".mts", ".m2ts", ".vob", ".ogv"}
+
+    result: Dict[str, Any] = {}
+
+    try:
+        if ext in VIDEO_EXTS:
+            import subprocess as sp, json as _json
+            probe = sp.run(
+                [_find_bin("ffprobe"), "-v", "quiet", "-print_format", "json",
+                 "-show_format", "-show_streams", path],
+                capture_output=True, text=True, timeout=15
+            )
+            data = _json.loads(probe.stdout)
+            for stream in data.get("streams", []):
+                if stream.get("codec_type") == "video":
+                    result["width"] = stream.get("width")
+                    result["height"] = stream.get("height")
+                    break
+            tags = data.get("format", {}).get("tags", {})
+            tags_lower = {k.lower(): v for k, v in tags.items()}
+            for key in ["com.apple.quicktime.creationdate", "creation_time", "date_taken"]:
+                if key in tags_lower:
+                    result["date_original"] = tags_lower[key]
+                    break
+            for key in ["com.apple.quicktime.model", "encoder", "make"]:
+                if key in tags_lower:
+                    result["camera_model"] = tags_lower[key]
+                    break
+            loc = tags_lower.get("com.apple.quicktime.location.iso6709", "")
+            if loc:
+                import re
+                m = re.match(r'([+-]\d+\.?\d*)([+-]\d+\.?\d*)', loc)
+                if m:
+                    result["gps_lat"] = float(m.group(1))
+                    result["gps_lon"] = float(m.group(2))
+            result["file_size"] = os.path.getsize(path)
+        else:
+            from PIL import Image
+            from PIL.ExifTags import TAGS, GPSTAGS
+
+            img = Image.open(path)
+            result["width"] = img.width
+            result["height"] = img.height
+            result["file_size"] = os.path.getsize(path)
+
+            try:
+                exif_raw = img._getexif()
+            except Exception:
+                exif_raw = None
+
+            if exif_raw:
+                for tag_id, value in exif_raw.items():
+                    tag = TAGS.get(tag_id, tag_id)
+                    try:
+                        if tag == "DateTimeOriginal":
+                            result["date_original"] = str(value)
+                        elif tag == "Make":
+                            result["camera_make"] = str(value).strip('\x00').strip()
+                        elif tag == "Model":
+                            result["camera_model"] = str(value).strip('\x00').strip()
+                        elif tag == "GPSInfo":
+                            gps_data: Dict[str, Any] = {}
+                            for gps_tag_id, gps_val in value.items():
+                                gps_tag = GPSTAGS.get(gps_tag_id, gps_tag_id)
+                                gps_data[gps_tag] = gps_val
+                            if "GPSLatitude" in gps_data and "GPSLongitude" in gps_data:
+                                def _dms_to_dd(dms: Any, ref: str) -> Optional[float]:
+                                    try:
+                                        d, m, s = dms
+                                        dd = float(d) + float(m) / 60.0 + float(s) / 3600.0
+                                        if ref in ('S', 'W'):
+                                            dd = -dd
+                                        return round(dd, 7)
+                                    except Exception:
+                                        return None
+                                lat = _dms_to_dd(gps_data["GPSLatitude"], gps_data.get("GPSLatitudeRef", "N"))
+                                lon = _dms_to_dd(gps_data["GPSLongitude"], gps_data.get("GPSLongitudeRef", "E"))
+                                if lat is not None and lon is not None:
+                                    result["gps_lat"] = lat
+                                    result["gps_lon"] = lon
+                        elif tag == "FNumber":
+                            result["aperture"] = round(float(value), 1)
+                        elif tag == "ISOSpeedRatings":
+                            result["iso"] = int(value)
+                        elif tag == "ExposureTime":
+                            fv = float(value)
+                            if fv > 0 and fv < 1:
+                                result["exposure"] = f"1/{int(round(1/fv))}"
+                            else:
+                                result["exposure"] = f"{fv}s"
+                        elif tag == "FocalLength":
+                            result["focal_length"] = round(float(value), 1)
+                    except Exception:
+                        pass
+    except Exception as e:
+        print(f"EXIF error for {path}: {e}")
+
+    return result
+
+
 @app.post("/api/db/reset")
 async def reset_database(db: AsyncSession = Depends(get_db)):
     await db.execute(delete(ProcessedFile))

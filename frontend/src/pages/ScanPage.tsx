@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FolderPlus, X, Play, Square, Folder, Check, Loader2, Clock } from 'lucide-react'
+import { FolderPlus, X, Play, StopCircle, Folder, Check, Loader2, Clock } from 'lucide-react'
 import { useStore } from '../store'
 import { startScan, stopScan } from '../utils/api'
 
@@ -331,7 +331,7 @@ export function ScanPage({ t }: { t: any }) {
                 onClick={handleStop}
                 className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-xl bg-[#FF705B]/10 text-[#FF705B] hover:bg-[#FF705B]/20 transition-all font-medium"
               >
-                <Square size={16} />
+                <StopCircle size={16} />
                 {t.scan.stopScan}
               </button>
             )}
